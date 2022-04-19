@@ -5,6 +5,7 @@ import socket
 import threading
 import uuid
 import time
+from logger import Logger
 
 class Response():
     def __init__(self, payload : str):
@@ -12,6 +13,7 @@ class Response():
 
     def to_str(self, enc : str = "UTF-8") -> bytes:
         return bytes(self.__payload + "\r\n", enc)
+
 
 class Session():
     def __init__(self, ip : str):
@@ -54,6 +56,7 @@ class Session():
     def wipe_buffer(self):
         self.__buffer_out.clear()
 
+
 class Command():
     def __init__(self, func : callable, body_start_index : int):
         self.func = func
@@ -64,6 +67,7 @@ class Command():
     
     def exec(self, args : list = [], session_queue : list = [], opt_args = []) -> Response:
         return self.func(args, session_queue, opt_args)
+
 
 class FunctionSet():
     def create_session_if_needed(session_queue : list[Session], ip : str, socket : socket.socket):
@@ -96,8 +100,12 @@ class FunctionSet():
             sessions[0].write_response_for(r2, args[0])
             return r
         else:
-            print("[*] No sessions found for %s" % args[0])
-            return None
+            return Response("BAD-RQST-BDY No session found for %s" % args[0])
+
+    @staticmethod
+    def on_bad_rqst_hdr(args : list,  session_queue : list, opt_args = []):
+        return Response("BAD-RQST-HDR")
+
 
 class CommandParser():
     @staticmethod
@@ -117,14 +125,20 @@ class CommandParser():
     
     @staticmethod
     def find_command(command_text, command_set : list) -> Command:
-        return command_set[command_text.rstrip().split(" ")[0]]
+        command_str = command_text.rstrip().split(" ")[0]
+        if command_str in command_set:
+            return command_set[command_str]
+        else:
+            return Command(FunctionSet.on_bad_rqst_hdr, -1)
     
+
 class Server():
-    def __init__(self, ip : str = "127.0.0.1", port : int = 27700):
+    def __init__(self, ip : str = "127.0.0.1", logger : Logger = Logger(), port : int = 27700):
         self.__bind_ip = ip
         self.__bind_port = port
         self.session_queue = []
         self.event_locks = {}
+        self.logger = logger
         self.command_set = {
             "HELLO-FROM" : Command(FunctionSet.on_hello, -1),
             "SEND" : Command(FunctionSet.on_send_ok, 2)
@@ -132,48 +146,50 @@ class Server():
         self.__server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__server.bind((self.__bind_ip, self.__bind_port))
         self.__server.listen(5)
-        print("[*] Listening on %s:%d" % (self.__bind_ip, self.__bind_port))
+        self.logger.info("Listening on %s:%d" % (self.__bind_ip, self.__bind_port))
 
-    def __handle_client(self, client_socket : socket.socket, event : Event):
+    def __handle_client(self, client_socket : socket.socket, event : Event, logger : Logger):
         sip = client_socket.getpeername()[0]
         while not event.is_set():
             try:
                 request = client_socket.recv(4096)
                 if not request:
                     continue
-                print("[*] Received: %s on %s" % (request, threading.current_thread().name))
-                command = CommandParser.find_command(request.decode("UTF-8"), self.command_set)
-                parsed_command = CommandParser.parse_command(request.decode("UTF-8"), command.body_start_index())
+                logger.info("Received: %s on %s" % (request, threading.current_thread().name))
+                if request[0] == 255:
+                    self.logger.info("Received ff byte from %s, skipping over..." % sip)
+                    client_socket.close()
+                    break
+                command = CommandParser.find_command(request.decode("ascii"), self.command_set)
+                parsed_command = CommandParser.parse_command(request.decode("ascii"), command.body_start_index())
                 args = []
                 for arg_index in range(1, len(parsed_command)):
                     args.append(parsed_command[arg_index])
                 response = command.exec(args, self.session_queue, [client_socket.getpeername()[0]])
                 if response:
-                    print("[*] Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
+                    logger.info("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
                     client_socket.sendall(bytes(response.to_str()))
             except Exception as e:
-                print(threading.current_thread().name)
-                print(e.args)
+                logger.err(str(e))
                 client_socket.close()
-                return
+                break
             time.sleep(0.5)
         sessions : list[Session] = list(filter(lambda s : (s.ip() == sip), self.session_queue))
         if sessions and sessions[0] in self.session_queue:
             self.session_queue.remove(sessions[0])
             del sessions[0]
 
-    def __handle_buffer_out(self):
+    def __handle_buffer_out(self, logger : Logger):
         while True:
             for session in self.session_queue:
                 socket : socket.socket = session.socket()
                 if session and session.username():
                     for msg in session.read_all_for_username(session.username()):
                         try:
-                            print("Writing %s to socket of %s" % (msg.to_str(), session.username()))
+                            logger.info("Writing %s to socket of %s" % (msg.to_str(), session.username()))
                             socket.sendall(bytes(msg.to_str()))
                         except OSError as e:
-                            print(threading.current_thread().name)
-                            print(e.args)
+                            self.logger.err(e)
                             if session in self.session_queue:
                                self.session_queue.remove(session)
                             socket.close()
@@ -181,24 +197,23 @@ class Server():
                                 self.event_locks[session.ip()].set()
                                 del self.event_locks[session.ip()]
                         except Exception as e:
-                            print(threading.current_thread().name)
-                            print(e.args)
+                            logger.err(str(e))
                             self.event_locks[session.ip()].set()
 
                     if session:
                         session.wipe_buffer()
             time.sleep(1)
     def launch(self):
-        client_handler = threading.Thread(target = self.__handle_buffer_out, name="Buffer_Writer")
+        client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,), name="Buffer_Writer")
         client_handler.start()
         while True:
-            print("[*] There are alredy %d thread active" % threading.active_count())
+            self.logger.info("There are alredy %d thread active" % threading.active_count())
             client, addr = self.__server.accept()
             FunctionSet.create_session_if_needed(self.session_queue, client.getpeername()[0], client)
-            print("[*] Accepted connection from: %s:%d" % (addr[0], addr[1]))
+            self.logger.info("Accepted connection from: %s:%d" % (addr[0], addr[1]))
             event = Event()
             self.event_locks[addr[0]] = event
-            client_handler = threading.Thread(target = self.__handle_client, args=(client,event), name="SocketHGandler%s" % (addr[0]))
+            client_handler = threading.Thread(target = self.__handle_client, args=(client,event,self.logger), name="SocketHandler%s" % (addr[0]))
             client_handler.start()
 
 
