@@ -1,9 +1,17 @@
 from concurrent.futures import thread
 from http import server
+from multiprocessing import Event
 import socket
 import threading
 import uuid
 import time
+
+class Response():
+    def __init__(self, payload : str):
+        self.__payload = payload
+
+    def to_str(self, enc : str = "UTF-8") -> bytes:
+        return bytes(self.__payload + "\r\n", enc)
 
 class Session():
     def __init__(self, ip : str):
@@ -11,6 +19,7 @@ class Session():
         self.__ip = ip
         self.__socket = None
         self.__username = ""
+        self.__buffer_out : dict[list] = {}
     
     def assign_user(self, username : str):
         self.__username = username
@@ -29,13 +38,21 @@ class Session():
     
     def ip(self) -> str:
         return self.__ip
+    
+    def read_all_for_username(self, username : str) -> list[str]:
+        if username in self.__buffer_out:
+            return self.__buffer_out[username]
+        else:
+            return []
+    
+    def write_response_for(self, response : Response, username : str):
+        if username in self.__buffer_out:
+            self.__buffer_out[username].append(response)
+        else:
+            self.__buffer_out[username] = [response]
 
-class Response():
-    def __init__(self, payload : str):
-        self.__payload = payload
-
-    def to_str(self, enc : str = "UTF-8") -> bytes:
-        return bytes(self.__payload, enc)
+    def wipe_buffer(self):
+        self.__buffer_out.clear()
 
 class Command():
     def __init__(self, func : callable, body_start_index : int):
@@ -45,7 +62,7 @@ class Command():
     def body_start_index(self):
         return self.__body_start_index
     
-    def exec(self, args : list = [], session_queue : list = [], opt_args = []) -> tuple[Response, socket.socket, Response]:
+    def exec(self, args : list = [], session_queue : list = [], opt_args = []) -> Response:
         return self.func(args, session_queue, opt_args)
 
 class FunctionSet():
@@ -57,30 +74,30 @@ class FunctionSet():
             session_queue.append(s)
 
     @staticmethod
-    def on_hello(args : list, session_queue : list[Session], opt_args = []) -> tuple[Response, socket.socket, Response]:
+    def on_hello(args : list, session_queue : list[Session], opt_args = []) -> Response:
         r = Response("HELLO " + args[0])
         session : Session = list(filter(lambda s : (s.username() == args[0]), session_queue))
         if session:
             r = Response("IN-USE")
-            return (r, None, None)
+            return r
         sessions: list[Session] = list(filter(lambda s : (s.ip() == opt_args[0]), session_queue))
         if sessions:
             sessions[0].assign_user(args[0])
-            return (r, sessions[0].socket(), None)
+            return r
         else:
-            return (None, None, None)
+            return None
 
     @staticmethod
-    def on_send_ok(args : list,  session_queue : list, opt_args = []) -> tuple[Response, socket.socket, Response]:
+    def on_send_ok(args : list,  session_queue : list, opt_args = []) -> Response:
         sessions : list[Session] = list(filter(lambda s : (s.username() == args[0]), session_queue))
-        print(args[0])
         if sessions:
             r = Response("SEND-OK")
             r2 = Response("DELIVERY %s %s" % (args[0], args[1]))
-            return (r, sessions[0].socket(), r2)
+            sessions[0].write_response_for(r2, args[0])
+            return r
         else:
-            print("sessions empty")
-            return (None, None, None)
+            print("[*] No sessions found for %s" % args[0])
+            return None
 
 class CommandParser():
     @staticmethod
@@ -107,6 +124,7 @@ class Server():
         self.__bind_ip = ip
         self.__bind_port = port
         self.session_queue = []
+        self.event_locks = {}
         self.command_set = {
             "HELLO-FROM" : Command(FunctionSet.on_hello, -1),
             "SEND" : Command(FunctionSet.on_send_ok, 2)
@@ -116,8 +134,9 @@ class Server():
         self.__server.listen(5)
         print("[*] Listening on %s:%d" % (self.__bind_ip, self.__bind_port))
 
-    def __handle_client(self, client_socket : socket.socket):
-        while True:
+    def __handle_client(self, client_socket : socket.socket, event : Event):
+        sip = client_socket.getpeername()[0]
+        while not event.is_set():
             try:
                 request = client_socket.recv(4096)
                 if not request:
@@ -128,48 +147,58 @@ class Server():
                 args = []
                 for arg_index in range(1, len(parsed_command)):
                     args.append(parsed_command[arg_index])
-                response, client_socket2, return_response = command.exec(args, self.session_queue, [client_socket.getpeername()[0]])
-                print("[*] Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
-                client_socket.sendall(bytes(response.to_str()))
-                if client_socket2 and return_response:
-                    print("[*] Sending %s on %s" % (return_response.to_str(), threading.current_thread().name))
-                    client_socket2.send(bytes(return_response.to_str()))
+                response = command.exec(args, self.session_queue, [client_socket.getpeername()[0]])
+                if response:
+                    print("[*] Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
+                    client_socket.sendall(bytes(response.to_str()))
             except Exception as e:
                 print(threading.current_thread().name)
                 print(e.args)
-                if client_socket2 and type(client_socket2) is socket.socket:
-                    session : Session = list(filter(lambda s : (s.ip() == client_socket2.getpeername()[0]), self.session_queue))[0]
-                    self.session_queue.remove(session)
-                    client_socket2.close()
-                elif client_socket2:
-                    del client_socket2
                 client_socket.close()
                 return
-    def __socket_queue_cleaner(self):
+            time.sleep(0.5)
+        sessions : list[Session] = list(filter(lambda s : (s.ip() == sip), self.session_queue))
+        if sessions and sessions[0] in self.session_queue:
+            self.session_queue.remove(sessions[0])
+            del sessions[0]
+
+    def __handle_buffer_out(self):
         while True:
             for session in self.session_queue:
-                if session:
-                    s = session.socket()
-                    if s:
+                socket : socket.socket = session.socket()
+                if session and session.username():
+                    for msg in session.read_all_for_username(session.username()):
                         try:
-                            if type(s) is socket.socket:
-                                s.sendall(bytes("PING", "UTF-8"))     
-                            time.sleep(2)
-                        except:
-                            print("Cleaning... session of %s" % session.username())
-                            del s
-                            self.session_queue.remove(session)
-                            del session
+                            print("Writing %s to socket of %s" % (msg.to_str(), session.username()))
+                            socket.sendall(bytes(msg.to_str()))
+                        except OSError as e:
+                            print(threading.current_thread().name)
+                            print(e.args)
+                            if session in self.session_queue:
+                               self.session_queue.remove(session)
+                            socket.close()
+                            if session.ip() in self.event_locks:
+                                self.event_locks[session.ip()].set()
+                                del self.event_locks[session.ip()]
+                        except Exception as e:
+                            print(threading.current_thread().name)
+                            print(e.args)
+                            self.event_locks[session.ip()].set()
 
+                    if session:
+                        session.wipe_buffer()
+            time.sleep(1)
     def launch(self):
+        client_handler = threading.Thread(target = self.__handle_buffer_out, name="Buffer_Writer")
+        client_handler.start()
         while True:
             print("[*] There are alredy %d thread active" % threading.active_count())
             client, addr = self.__server.accept()
             FunctionSet.create_session_if_needed(self.session_queue, client.getpeername()[0], client)
             print("[*] Accepted connection from: %s:%d" % (addr[0], addr[1]))
-            client_handler = threading.Thread(target = self.__handle_client, args=(client,))
-            client_handler.start()
-            client_handler = threading.Thread(target = self.__socket_queue_cleaner)
+            event = Event()
+            self.event_locks[addr[0]] = event
+            client_handler = threading.Thread(target = self.__handle_client, args=(client,event), name="SocketHGandler%s" % (addr[0]))
             client_handler.start()
 
 
