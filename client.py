@@ -1,13 +1,19 @@
+from datetime import datetime
 from multiprocessing import Condition, Event
 import socket
 import time
 import threading
+import curses
+from curses import textpad
+import serial
 
-target_host = "192.168.1.203"
+target_host = "127.0.0.1"
 target_port = 27700
+port = 'COM4'
+encoding = 'ASCII'
 msgs = [
-    "HELLO-FROM %s",
-    "SEND oliwier"
+    "REG %s",
+    "SEND %s %s"
 ]
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client.connect((target_host, target_port))
@@ -16,56 +22,92 @@ logged_in = False
 event = threading.Event()
 
 def hello(username : str):
-    client.send(bytes(msgs[0] % username, 'UTF-8'))
+    client.send(bytes(msgs[0] % username, encoding))
 
 def send_message_to(msg : str, to : str):
-    client.sendall(bytes("SEND %s %s" % (to, msg), "UTF-8"))
-    
-def recv(client : socket.socket, event : Event):
+    client.send(bytes("SEND %s %s" % (to, msg), encoding))
+
+def write_to_serial_port(ser : serial.Serial, msg : str):
+    ser.write(bytes('T'+str(datetime.now().timestamp()), encoding))
+    time.sleep(3)
+    ser.write(bytes(msg, encoding))
+    time.sleep(3)
+
+def recv(client : socket.socket, event : Event, ser : serial.Serial):
     while not event.is_set():
         lock.acquire()
         global logged_in
         response = client.recv(4096)
         if response:
-            decoded_response = response.decode("UTF-8")
-            if decoded_response.startswith("HELLO"):
-                print("Logged in as %s" % decoded_response.split(" ")[1])
+            decoded_response = response.decode(encoding)
+            if decoded_response.startswith("REG-ACK"):
+                #print("Registered as %s" % decoded_response.split(" ")[1])
                 logged_in = True
             if decoded_response == "IN-USE":
-                print("This name is already taken")
+                # FIXME: Remember to implement it using curses
+                pass
             if decoded_response.startswith("DELIVERY"):
-                chunks = response.decode("UTF-8").split(" ")
+                chunks = response.decode(encoding).split(" ")
                 body = ''
-                for i in range(2, len(chunks)):
+                for i in range(1, len(chunks)):
                     body += ' ' + chunks[i]
-                print(body.lstrip())
+                cmd = body.lstrip().rstrip()+'\n'
+                print(bytes(cmd, encoding))
+                write_to_serial_port(ser, cmd)
             lock.notify_all()
             lock.release()
 
-
-def run():
+def read_serial(ser : serial.Serial):
+    while ser.isOpen():
+        if ser.in_waiting > 0:
+            print(ser.read_all().decode(encoding))
+        time.sleep(0.2)
+        
+def run(stdscr, editwin):
+    box = textpad.Textbox(editwin)
+    user = ""
     global logged_in
     while not logged_in:
-        i = str(input("Your name: "))
-        hello(i)
+        box.edit()
+        user = box.gather()
+        hello(user)
         time.sleep(1)
-    cmd = ""
-    user = ""
-    print("At any time, !quit to quit")
-    user = str(input("User name:"))
-
+    stdscr.addstr(0, 0, "Enter quoy server command: (hit Ctrl-G to send)")
+    stdscr.refresh()
+    editwin = curses.newwin(5,30, 2,1)
+    textpad.rectangle(stdscr, 25,0, 7, 32)
+    stdscr.refresh()
+    box = textpad.Textbox(editwin)
+    box.edit()
+    cmd = ''
     while cmd != "!quit":
-        cmd = str(input(">"))
+        cmd = box.gather()
         if cmd and cmd != "!quit":
             send_message_to(cmd, user)
             cmd = ''
         else:
-            #client.close()
             event.set()
+            curses.nocbreak()
+            stdscr.keypad(False)
+            curses.echo()
+            curses.endwin()
             exit(0)
 
 if __name__ == '__main__':
-    client_handler = threading.Thread(target = recv, args=(client,event,))
+    stdscr = curses.initscr()
+    stdscr.clear()
+    curses.noecho()
+    stdscr.keypad(True)
+    stdscr.addstr(0, 0, "Register as: (hit Ctrl-G to send)")
+    editwin = curses.newwin(5,30, 2,1)
+    textpad.rectangle(stdscr, 1,0, 7, 32)
+    stdscr.refresh()
+    ser = serial.Serial()
+    ser.baudrate = 9600
+    ser.port = port
+    ser.open()
+    client_handler = threading.Thread(target = recv, args=(client,event,ser,), daemon=False)
     client_handler.start()
-    run()
-    
+    client_handler = threading.Thread(target = read_serial, args=(ser,), daemon=False)
+    client_handler.start()
+    run(stdscr, editwin)
