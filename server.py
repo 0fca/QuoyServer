@@ -11,7 +11,7 @@ class Response():
     def __init__(self, payload : str):
         self.__payload = payload
 
-    def to_str(self, enc : str = "UTF-8") -> bytes:
+    def to_str(self, enc : str = "ASCII") -> bytes:
         return bytes(self.__payload + "\r\n", enc)
 
 
@@ -79,7 +79,7 @@ class FunctionSet():
 
     @staticmethod
     def on_hello(args : list, session_queue : list[Session], opt_args = []) -> Response:
-        r = Response("HELLO " + args[0])
+        r = Response("REG-ACK " + args[0])
         session : Session = list(filter(lambda s : (s.username() == args[0]), session_queue))
         if session:
             r = Response("IN-USE")
@@ -96,7 +96,7 @@ class FunctionSet():
         sessions : list[Session] = list(filter(lambda s : (s.username() == args[0]), session_queue))
         if sessions:
             r = Response("SEND-OK")
-            r2 = Response("DELIVERY %s %s" % (args[0], args[1]))
+            r2 = Response("DELIVERY %s" % (args[1]))
             sessions[0].write_response_for(r2, args[0])
             return r
         else:
@@ -105,6 +105,10 @@ class FunctionSet():
     @staticmethod
     def on_bad_rqst_hdr(args : list,  session_queue : list, opt_args = []):
         return Response("BAD-RQST-HDR")
+
+    @staticmethod
+    def on_unreg(args : list, session_queue : list, opt_args = []):
+        return Response("NOT-IMPL")
 
 
 class CommandParser():
@@ -140,8 +144,9 @@ class Server():
         self.event_locks = {}
         self.logger = logger
         self.command_set = {
-            "HELLO-FROM" : Command(FunctionSet.on_hello, -1),
-            "SEND" : Command(FunctionSet.on_send_ok, 2)
+            "REG" : Command(FunctionSet.on_hello, -1),
+            "SEND" : Command(FunctionSet.on_send_ok, 2),
+            "UNREG" : Command(FunctionSet.on_unreg, -1)
         }
         self.__server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__server.bind((self.__bind_ip, self.__bind_port))
