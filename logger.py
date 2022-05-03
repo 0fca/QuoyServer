@@ -1,5 +1,5 @@
 from sys import stderr, stdout
-from datetime import datetime, date
+from datetime import date
 
 class Logger():
     def __init__(self, std_file_pipe  = None, err_file_pipe = None):
