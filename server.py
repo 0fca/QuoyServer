@@ -6,6 +6,7 @@ import threading
 import uuid
 import time
 from logger import Logger
+from session_manager import Session, SessionManager
 
 class Response():
     def __init__(self, payload : str):
@@ -13,48 +14,6 @@ class Response():
 
     def to_str(self, enc : str = "UTF-8") -> bytes:
         return bytes(self.__payload + "\r\n", enc)
-
-
-class Session():
-    def __init__(self, ip : str):
-        self.__sid = uuid.uuid4()
-        self.__ip = ip
-        self.__socket = None
-        self.__username = ""
-        self.__buffer_out : dict[list] = {}
-    
-    def assign_user(self, username : str):
-        self.__username = username
-
-    def assing_socket(self, socket : socket.socket):
-        self.__socket = socket
-
-    def socket(self) -> socket.socket:
-        return self.__socket
-
-    def sid(self) -> str:
-        return self.__sid
-    
-    def username(self) -> str:
-        return self.__username
-    
-    def ip(self) -> str:
-        return self.__ip
-    
-    def read_all_for_username(self, username : str) -> list[str]:
-        if username in self.__buffer_out:
-            return self.__buffer_out[username]
-        else:
-            return []
-    
-    def write_response_for(self, response : Response, username : str):
-        if username in self.__buffer_out:
-            self.__buffer_out[username].append(response)
-        else:
-            self.__buffer_out[username] = [response]
-
-    def wipe_buffer(self):
-        self.__buffer_out.clear()
 
 
 class Command():
@@ -70,13 +29,6 @@ class Command():
 
 
 class FunctionSet():
-    def create_session_if_needed(session_queue : list[Session], ip : str, socket : socket.socket):
-        s = Session(ip)
-        s.assing_socket(socket)
-        filtered_sessions = list(filter(lambda s : (s.ip() == ip), session_queue))
-        if not filtered_sessions:
-            session_queue.append(s)
-
     @staticmethod
     def on_hello(args : list, session_queue : list[Session], opt_args = []) -> Response:
         r = Response("HELLO " + args[0])
@@ -136,7 +88,6 @@ class Server():
     def __init__(self, ip : str = "127.0.0.1", logger : Logger = Logger(), port : int = 27700):
         self.__bind_ip = ip
         self.__bind_port = port
-        self.session_queue = []
         self.event_locks = {}
         self.logger = logger
         self.command_set = {
@@ -179,7 +130,7 @@ class Server():
             self.session_queue.remove(sessions[0])
             del sessions[0]
 
-    def __handle_buffer_out(self, logger : Logger):
+    def __handle_buffer_out(self, logger : Logger, session_manager : SessionManager):
         while True:
             for session in self.session_queue:
                 socket : socket.socket = session.socket()
@@ -204,16 +155,17 @@ class Server():
                         session.wipe_buffer()
             time.sleep(1)
     def launch(self):
-        client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,), name="Buffer_Writer")
+        session_manager = SessionManager()
+        client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,session_manager,), name="Buffer_Writer")
         client_handler.start()
         while True:
             self.logger.info("There are alredy %d thread active" % threading.active_count())
             client, addr = self.__server.accept()
-            FunctionSet.create_session_if_needed(self.session_queue, client.getpeername()[0], client)
+            session_manager.create(client)
             self.logger.info("Accepted connection from: %s:%d" % (addr[0], addr[1]))
             event = Event()
             self.event_locks[addr[0]] = event
-            client_handler = threading.Thread(target = self.__handle_client, args=(client,event,self.logger), name="SocketHandler%s" % (addr[0]))
+            client_handler = threading.Thread(target = self.__handle_client, args=(client,event,self.logger,session_manager,), name="SocketHandler%s" % (addr[0]))
             client_handler.start()
 
 
