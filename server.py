@@ -3,18 +3,12 @@ from http import server
 from multiprocessing import Event
 import socket
 import threading
-import uuid
 import time
 from logger import Logger
-from session_manager import Session, SessionManager
-
-class Response():
-    def __init__(self, payload : str):
-        self.__payload = payload
-
-    def to_str(self, enc : str = "ASCII") -> bytes:
-        return bytes(self.__payload + "\r\n", enc)
-
+import ssl
+from session_manager import Session
+from session_manager import SessionManager
+from session_manager import Response
 
 class Command():
     def __init__(self, func : callable, body_start_index : int):
@@ -24,32 +18,32 @@ class Command():
     def body_start_index(self):
         return self.__body_start_index
     
-    def exec(self, args : list = [], session_queue : list = [], opt_args = []) -> Response:
-        return self.func(args, session_queue, opt_args)
+    def exec(self, args : list = [], session_manager : SessionManager = None, opt_args = []) -> Response:
+        return self.func(args, session_manager, opt_args)
 
 
 class FunctionSet():
     @staticmethod
-    def on_hello(args : list, session_queue : list[Session], opt_args = []) -> Response:
+    def on_hello(args : list, session_manager : SessionManager, opt_args = []) -> Response:
         r = Response("REG-ACK " + args[0])
-        session : Session = list(filter(lambda s : (s.username() == args[0]), session_queue))
+        session = session_manager.existing_session_by_username(args[0])
         if session:
             r = Response("IN-USE")
             return r
-        sessions: list[Session] = list(filter(lambda s : (s.ip() == opt_args[0]), session_queue))
-        if sessions:
-            sessions[0].assign_user(args[0])
+        session : Session = session_manager.existing_session_by_ip(opt_args[0])
+        if session:
+            session.assign_user(args[0])
             return r
         else:
             return None
 
     @staticmethod
-    def on_send_ok(args : list,  session_queue : list, opt_args = []) -> Response:
-        sessions : list[Session] = list(filter(lambda s : (s.username() == args[0]), session_queue))
-        if sessions:
+    def on_send_ok(args : list,  session_manager : SessionManager, opt_args = []) -> Response:
+        session = session_manager.existing_session_by_username(args[0])
+        if session:
             r = Response("SEND-OK")
             r2 = Response("DELIVERY %s" % (args[1]))
-            sessions[0].write_response_for(r2, args[0])
+            session.write_response_for(r2, args[0])
             return r
         else:
             return Response("BAD-RQST-BDY No session found for %s" % args[0])
@@ -94,6 +88,7 @@ class Server():
         self.__bind_port = port
         self.event_locks = {}
         self.logger = logger
+        self.__session_manager = None
         self.command_set = {
             "REG" : Command(FunctionSet.on_hello, -1),
             "SEND" : Command(FunctionSet.on_send_ok, 2),
@@ -104,7 +99,7 @@ class Server():
         self.__server.listen(5)
         self.logger.info("Listening on %s:%d" % (self.__bind_ip, self.__bind_port))
 
-    def __handle_client(self, client_socket : socket.socket, event : Event, logger : Logger):
+    def __handle_client(self, client_socket : socket.socket, event : Event, logger : Logger, session_manager : SessionManager):
         sip = client_socket.getpeername()[0]
         while not event.is_set():
             try:
@@ -121,7 +116,7 @@ class Server():
                 args = []
                 for arg_index in range(1, len(parsed_command)):
                     args.append(parsed_command[arg_index])
-                response = command.exec(args, self.session_queue, [client_socket.getpeername()[0]])
+                response = command.exec(args, session_manager, [client_socket.getpeername()[0]])
                 if response:
                     logger.info("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
                     client_socket.sendall(bytes(response.to_str()))
@@ -130,47 +125,27 @@ class Server():
                 client_socket.close()
                 break
             time.sleep(0.5)
-        sessions : list[Session] = list(filter(lambda s : (s.ip() == sip), self.session_queue))
-        if sessions and sessions[0] in self.session_queue:
-            self.session_queue.remove(sessions[0])
-            del sessions[0]
+        self.logger.info("Halting session %s ..." % sip)
+        session_manager.halt_session(sip)
 
     def __handle_buffer_out(self, logger : Logger, session_manager : SessionManager):
         while True:
-            for session in self.session_queue:
-                socket : socket.socket = session.socket()
-                if session and session.username():
-                    for msg in session.read_all_for_username(session.username()):
-                        try:
-                            logger.info("Writing %s to socket of %s" % (msg.to_str(), session.username()))
-                            socket.sendall(bytes(msg.to_str()))
-                        except OSError as e:
-                            self.logger.err(e)
-                            if session in self.session_queue:
-                               self.session_queue.remove(session)
-                            socket.close()
-                            if session.ip() in self.event_locks:
-                                self.event_locks[session.ip()].set()
-                                del self.event_locks[session.ip()]
-                        except Exception as e:
-                            logger.err(str(e))
-                            self.event_locks[session.ip()].set()
-
-                    if session:
-                        session.wipe_buffer()
+            session_manager.handle_buffer_out()
             time.sleep(1)
+
     def launch(self):
-        session_manager = SessionManager()
-        client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,session_manager,), name="Buffer_Writer")
+        self.__session_manager = SessionManager()
+        client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer")
         client_handler.start()
         while True:
             self.logger.info("There are alredy %d thread active" % threading.active_count())
             client, addr = self.__server.accept()
-            session_manager.create(client)
+            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context.load_cert_chain(certfile="base.cer", keyfile="cert.key")
+            connstream = context.wrap_socket(client, server_side=True)
+            s = self.__session_manager.create(connstream)
             self.logger.info("Accepted connection from: %s:%d" % (addr[0], addr[1]))
-            event = Event()
-            self.event_locks[addr[0]] = event
-            client_handler = threading.Thread(target = self.__handle_client, args=(client,event,self.logger,session_manager,), name="SocketHandler%s" % (addr[0]))
+            client_handler = threading.Thread(target = self.__handle_client, args=(connstream, s.lock_event(), self.logger, self.__session_manager), name="SocketHandler%s" % (addr[0]))
             client_handler.start()
 
 
