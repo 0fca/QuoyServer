@@ -1,4 +1,3 @@
-from concurrent.futures import thread
 from http import server
 from multiprocessing import Event
 import socket
@@ -9,6 +8,8 @@ import ssl
 from session_manager import Session
 from session_manager import SessionManager
 from session_manager import Response
+import config
+import os.path
 
 class Command():
     def __init__(self, func : callable, body_start_index : int):
@@ -49,11 +50,11 @@ class FunctionSet():
             return Response("BAD-RQST-BDY No session found for %s" % args[0])
 
     @staticmethod
-    def on_bad_rqst_hdr(args : list,  session_queue : list, opt_args = []):
+    def on_bad_rqst_hdr(args : list,  session_manager : SessionManager, opt_args = []):
         return Response("BAD-RQST-HDR")
 
     @staticmethod
-    def on_unreg(args : list, session_queue : list, opt_args = []):
+    def on_unreg(args : list, session_manager : SessionManager, opt_args = []):
         return Response("NOT-IMPL")
 
 
@@ -83,9 +84,9 @@ class CommandParser():
     
 
 class Server():
-    def __init__(self, ip : str = "127.0.0.1", logger : Logger = Logger(), port : int = 27700):
-        self.__bind_ip = ip
-        self.__bind_port = port
+    def __init__(self, vhost : dict, logger : Logger):
+        self.__bind_ip = vhost["HOST"]
+        self.__bind_port = vhost["PORT"]
         self.event_locks = {}
         self.logger = logger
         self.__session_manager = None
@@ -99,15 +100,15 @@ class Server():
         self.__server.listen(5)
         self.logger.info("Listening on %s:%d" % (self.__bind_ip, self.__bind_port))
 
-    def __handle_client(self, client_socket : socket.socket, event : Event, logger : Logger, session_manager : SessionManager):
+    def __handle_client(self, client_socket : socket.socket, event : Event, session_manager : SessionManager):
         sip = client_socket.getpeername()[0]
         while not event.is_set():
             try:
                 request = client_socket.recv(4096)
                 if not request:
                     continue
-                logger.info("Received: %s on %s" % (request, threading.current_thread().name))
-                if request[0] == 255:
+                self.logger.info("Received: %s on %s" % (request, threading.current_thread().name))
+                if type(client_socket) is not ssl.SSLSocket and request[0] == 255:
                     self.logger.info("Received ff byte from %s, skipping over..." % sip)
                     client_socket.close()
                     break
@@ -118,10 +119,10 @@ class Server():
                     args.append(parsed_command[arg_index])
                 response = command.exec(args, session_manager, [client_socket.getpeername()[0]])
                 if response:
-                    logger.info("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
+                    self.logger.info("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
                     client_socket.sendall(bytes(response.to_str()))
             except Exception as e:
-                logger.err(str(e))
+                self.logger.err(str(e))
                 client_socket.close()
                 break
             time.sleep(0.5)
@@ -133,23 +134,29 @@ class Server():
             session_manager.handle_buffer_out()
             time.sleep(1)
 
-    def launch(self):
+    def launch(self, config : dict):
         self.__session_manager = SessionManager()
         client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer")
         client_handler.start()
         while True:
             self.logger.info("There are alredy %d thread active" % threading.active_count())
             client, addr = self.__server.accept()
-            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-            context.load_cert_chain(certfile="base.cer", keyfile="cert.key")
-            connstream = context.wrap_socket(client, server_side=True)
-            s = self.__session_manager.create(connstream)
+            if config["TLS"]:
+                context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+                if os.path.isfile(config["CERT_FILE"]) and os.path.isfile(config["KEY_FILE"]):
+                    context.load_cert_chain(certfile=config["CERT_FILE"], keyfile=config["KEY_FILE"])
+                    client = context.wrap_socket(client, server_side=True)
+                else:
+                    raise Exception("The configuration is invalid, the cert file and a key file cannot be empty prior to set up SSL server socket")
+            s = self.__session_manager.create(client)
             self.logger.info("Accepted connection from: %s:%d" % (addr[0], addr[1]))
-            client_handler = threading.Thread(target = self.__handle_client, args=(connstream, s.lock_event(), self.logger, self.__session_manager), name="SocketHandler%s" % (addr[0]))
+            client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager), name="SocketHandler%s" % (addr[0]))
             client_handler.start()
 
 
 if __name__ == '__main__':
-    server = Server('0.0.0.0')
-    server.launch()
+    for vhost in config.NET_CONF["VHOSTS"]:
+        logger = Logger()
+        server = Server(vhost, logger)
+        server.launch(vhost)
     
