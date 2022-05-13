@@ -99,7 +99,7 @@ class Server():
         self.__server.listen(5)
         self.logger.info("Listening on %s:%d" % (self.__bind_ip, self.__bind_port))
 
-    def __handle_client(self, client_socket : socket.socket, event : Event, logger : Logger, session_manager : SessionManager):
+    def __handle_client(self, client_socket, event : Event, logger : Logger, session_manager : SessionManager):
         sip = client_socket.getpeername()[0]
         while not event.is_set():
             try:
@@ -107,7 +107,7 @@ class Server():
                 if not request:
                     continue
                 logger.info("Received: %s on %s" % (request, threading.current_thread().name))
-                if request[0] == 255:
+                if type(client_socket) is socket.socket and request[0] == 255:
                     self.logger.info("Received ff byte from %s, skipping over..." % sip)
                     client_socket.close()
                     break

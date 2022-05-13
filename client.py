@@ -3,12 +3,10 @@ from multiprocessing import Condition, Event
 import socket
 import time
 import threading
-import curses
-from curses import textpad
 import serial
 import ssl
 
-target_host = "127.0.0.1"
+target_host = "192.168.1.31"
 target_port = 27700
 port = 'COM4'
 encoding = 'ASCII'
@@ -41,8 +39,6 @@ def write_to_serial_port(ser : serial.Serial, msg : str):
 
 def recv(client : socket.socket, event : Event, ser : serial.Serial):
     while not event.is_set():
-        lock.acquire()
-        global logged_in
         response = client.recv(4096)
         if response:
             decoded_response = response.decode(encoding)
@@ -60,8 +56,6 @@ def recv(client : socket.socket, event : Event, ser : serial.Serial):
                 cmd = body.lstrip().rstrip()+'\n'
                 print(bytes(cmd, encoding))
                 write_to_serial_port(ser, cmd)
-            lock.notify_all()
-            lock.release()
 
 def read_serial(ser : serial.Serial):
     while ser and ser.isOpen():
@@ -69,46 +63,13 @@ def read_serial(ser : serial.Serial):
             print(ser.read_all().decode(encoding))
         time.sleep(0.2)
         
-def run(stdscr, editwin):
-    box = textpad.Textbox(editwin)
-    user = ""
-    global logged_in
-    while not logged_in:
-        box.edit()
-        user = box.gather().strip()
-        hello(user)
-        time.sleep(1)
-    stdscr.addstr(0, 0, "Enter quoy server command: (hit Ctrl-G to send)")
-    stdscr.refresh()
-    editwin = curses.newwin(5,30, 2,1)
-    textpad.rectangle(stdscr, 0,0, 7, 32)
-    stdscr.refresh()
-    box = textpad.Textbox(editwin)
-    box.edit()
-    cmd = ''
-    while cmd != "!quit":
-        cmd = box.gather()
-        if cmd and cmd != "!quit":
-            send_message_to(cmd.strip(), user.strip())
-            cmd = ''
-        else:
-            event.set()
-            curses.nocbreak()
-            stdscr.keypad(False)
-            curses.echo()
-            curses.endwin()
-            exit(0)
+def run(user : str):
+    # Get god damn rid of this global
+    hello(user)
+    time.sleep(1)
+    # Probably this would be a good idea to add some sort of send feature, but we don't need it here now
 
 if __name__ == '__main__':
-    stdscr = curses.initscr()
-    stdscr.clear()
-    curses.noecho()
-    stdscr.keypad(True)
-    stdscr.addstr(0, 0, "Register as: (hit Ctrl-G to send)")
-    editwin = curses.newwin(5,30, 2,1)
-    textpad.rectangle(stdscr, 1,0, 7, 32)
-    stdscr.refresh()
-
     try:
         ser = serial.Serial()
         ser.baudrate = 9600
@@ -120,4 +81,4 @@ if __name__ == '__main__':
     client_handler.start()
     client_handler = threading.Thread(target = read_serial, args=(ser,), daemon=False)
     client_handler.start()
-    run(stdscr, editwin)
+    run(socket.gethostname())
