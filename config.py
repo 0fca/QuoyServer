@@ -7,3 +7,9 @@ NET_CONF = {
         "KEY_FILE": "cert.key"
     }]
 }
+MODULES = {
+    "MODULE_DIR": "./modules",
+    "ENABLED": [
+        "ssl"
+    ]
+}

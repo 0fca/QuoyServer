@@ -1,91 +1,18 @@
-from http import server
+from config import MODULES as modules_config
+from config import NET_CONF as net_conf
 from multiprocessing import Event
+from module_loader import ModuleLoader
 import socket
 import threading
 import time
 from logger import Logger
 import ssl
-from session_manager import Session
 from session_manager import SessionManager
-from session_manager import Response
-import config
-import os.path
+from commands.command_parser import CommandParser
+from commands.command import Command
+from commands.function_set import FunctionSet
 
-class Command():
-    def __init__(self, func : callable, body_start_index : int):
-        self.func = func
-        self.__body_start_index = body_start_index
-
-    def body_start_index(self):
-        return self.__body_start_index
-    
-    def exec(self, args : list = [], session_manager : SessionManager = None, opt_args = []) -> Response:
-        return self.func(args, session_manager, opt_args)
-
-
-class FunctionSet():
-    @staticmethod
-    def on_hello(args : list, session_manager : SessionManager, opt_args = []) -> Response:
-        session = session_manager.existing_session_by_username(args[0])
-        if session:
-            r = Response("IN-USE")
-            return r
-        session : Session = session_manager.existing_session_by_ip(opt_args[0])
-        if session:
-            r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
-            session.assign_user(args[0])
-            return r
-        else:
-            return None
-
-    @staticmethod
-    def on_send_ok(args : list,  session_manager : SessionManager, opt_args = []) -> Response:
-        session = session_manager.existing_session_by_username(args[0])
-        if session:
-            r = Response("SEND-OK")
-            r2 = Response("DELIVERY %s" % (args[1]))
-            session.write_response_for(r2, args[0])
-            return r
-        else:
-            return Response("BAD-RQST-BDY No session found for %s" % args[0])
-
-    @staticmethod
-    def on_bad_rqst_hdr(args : list,  session_manager : SessionManager, opt_args = []):
-        return Response("BAD-RQST-HDR")
-
-    @staticmethod
-    def on_unreg(args : list, session_manager : SessionManager, opt_args = []):
-        sid = args[0]
-        session : Session = session_manager.existing_session_by_sid(sid)
-        session.wipe_buffer()
-        session_manager.halt_session(session.ip())
-        return Response("UNREG-OK")
-
-
-class CommandParser():
-    @staticmethod
-    def parse_command(command_text : str, body_start_index : int = 2) -> list:
-        chunks = command_text.rstrip().split(" ")
-        parsed_command = []
-        if body_start_index != -1:
-            for i in range(0, body_start_index):
-                parsed_command.append(chunks[i])
-            body = ''
-            for i in range(body_start_index, len(chunks)):
-                body += ' ' + chunks[i]
-            parsed_command.append(body.lstrip())
-        else:
-            parsed_command = chunks
-        return parsed_command
-    
-    @staticmethod
-    def find_command(command_text, command_set : list) -> Command:
-        command_str = command_text.rstrip().split(" ")[0]
-        if command_str in command_set:
-            return command_set[command_str]
-        else:
-            return Command(FunctionSet.on_bad_rqst_hdr, -1)
-    
+MODULE_REFS = {}
 
 class Server():
     def __init__(self, vhost : dict, logger : Logger):
@@ -138,28 +65,29 @@ class Server():
             session_manager.handle_buffer_out()
             time.sleep(1)
 
-    def launch(self, config : dict):
+    def launch(self, vconfig : dict):
         self.__session_manager = SessionManager()
         client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer")
         client_handler.start()
         while True:
-            self.logger.info("There are alredy %d thread active" % threading.active_count())
+            self.logger.info("Active Thread Count: %s" % threading.active_count())
             client, addr = self.__server.accept()
-            if config["TLS"]:
-                context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-                if os.path.isfile(config["CERT_FILE"]) and os.path.isfile(config["KEY_FILE"]):
-                    context.load_cert_chain(certfile=config["CERT_FILE"], keyfile=config["KEY_FILE"])
-                    client = context.wrap_socket(client, server_side=True)
-                else:
-                    raise Exception("The configuration is invalid, the cert file and a key file cannot be empty prior to set up SSL server socket")
+            if "ssl" in modules_config["ENABLED"] and vconfig["TLS"]:
+                m = MODULE_REFS["mod_ssl"]
+                mod_init_func = getattr(m, "__mod_init__")
+                client = mod_init_func({
+                    "certfile": vconfig["CERT_FILE"],
+                    "keyfile": vconfig["KEY_FILE"]
+                })
             s = self.__session_manager.create(client)
             self.logger.info("Accepted connection from: %s:%d" % (addr[0], addr[1]))
             client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager), name="SocketHandler%s" % (addr[0]))
             client_handler.start()
 
-
 if __name__ == '__main__':
-    for vhost in config.NET_CONF["VHOSTS"]:
+    module_loader = ModuleLoader()
+    module_loader.load_all(MODULE_REFS)
+    for vhost in net_conf["VHOSTS"]:
         logger = Logger()
         server = Server(vhost, logger)
         server.launch(vhost)
