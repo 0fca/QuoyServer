@@ -2,6 +2,10 @@ from session_manager import SessionManager
 from session_manager import Response
 from session_manager import Session
 
+'''
+This class represents a set of functions which is to be used by a server as a valid set of commands it understands
+Methods of this class are mapped to proper command names using Command class objects
+'''
 class FunctionSet():
     @staticmethod
     def on_hello(args : list, session_manager : SessionManager, opt_args = []) -> Response:

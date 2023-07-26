@@ -13,3 +13,6 @@ MODULES = {
         "ssl"
     ]
 }
+LOG_CONF = {
+    "LOG_LEVEL": "Debug"
+}

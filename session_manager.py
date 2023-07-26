@@ -50,6 +50,8 @@ class Session():
         del self.event
     
     def write_response_for(self, response : Response, username : str):
+        # In case that user has something in a buffer at the moment of writing another response to the queue, 
+        # we just want to append a response instead of overwriting it
         if username in self.__buffer_out:
             self.__buffer_out[username].append(response)
         else:
@@ -70,7 +72,8 @@ class SessionManager():
         s = Session(ip, event)
         s.assing_socket(socket)
         filtered_sessions = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
-        # FIXME: This piece of code works, however it should handle this situation in some other way: returning some other value or throwing an except
+        # FIXME: This piece of code works, however it should handle this situation in some other way: 
+        # returning some meaningful value determining an error or throwing an except
         if not filtered_sessions:
             self.__session_queue.append(s)
         return s
@@ -90,19 +93,28 @@ class SessionManager():
         return self.__session_queue
     
     def remove_session(self, session : Session):
-        self.logger.info("Removing session %s" % (session.username()))
+        self.logger.debug("Removing session %s" % (session.username()))
         self.__session_queue.remove(session)
         del session
-
+    
+    '''
+    This method handles writing to the out buffer of server for each user session.
+    It uses a concept of event lock objects to properly handle access to a session object. 
+    It is in case of writing and reading between worker threads at the same time.
+    '''
     def handle_buffer_out(self):
+        # Go through all existing sessions
         for session in self.existing_sessions():
-                socket : SSLSocket = session.socket()
+                socket = session.socket()
                 if session and session.username():
+                    # As of a fact thath buffer out is actually shared between all sessions, 
+                    # we need to find all the messages for current session. 
                     for msg in session.read_all_for_username(session.username()):
                         try:
-                            self.logger.info("Writing %s to socket of %s" % (msg.to_str(), session.username()))
+                            self.logger.debug("Writing %s to socket of %s" % (msg.to_str(), session.username()))
                             socket.sendall(bytes(msg.to_str()))
                         except OSError as e:
+                            # There was an OS level error of networking layer, handle it by removing session and closing a socket
                             self.logger.err(e)
                             if session in self.existing_sessions():
                                self.remove_session(session)
@@ -114,7 +126,10 @@ class SessionManager():
                             self.logger.err(str(e))
                             session.lock_event().set()
                     if session:
+                        # Buffer is of one time use - we need to clean it up, 
+                        # so the commands wont get stacked there and wont get sent twice or more times
                         session.wipe_buffer()
+    
     def halt_session(self, sip : str):
         sessions : list[Session] = list(filter(lambda s : (s.ip() == sip), self.__session_queue))
         if sessions and sessions[0] in self.__session_queue:
