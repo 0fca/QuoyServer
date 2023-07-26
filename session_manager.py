@@ -83,6 +83,9 @@ class SessionManager():
         sessions: list[Session] = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
         return sessions[0] if len(sessions) > 0 else None
 
+    def existing_session_by_sid(self, sid : str) -> Session:
+        session : Session = list(filter(lambda s : (s.sid() == sid), self.__session_queue))
+        return session
     def existing_sessions(self) -> list[Session]:
         return self.__session_queue
     

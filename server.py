@@ -26,13 +26,13 @@ class Command():
 class FunctionSet():
     @staticmethod
     def on_hello(args : list, session_manager : SessionManager, opt_args = []) -> Response:
-        r = Response("REG-ACK " + args[0])
         session = session_manager.existing_session_by_username(args[0])
         if session:
             r = Response("IN-USE")
             return r
         session : Session = session_manager.existing_session_by_ip(opt_args[0])
         if session:
+            r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
             session.assign_user(args[0])
             return r
         else:
@@ -55,7 +55,11 @@ class FunctionSet():
 
     @staticmethod
     def on_unreg(args : list, session_manager : SessionManager, opt_args = []):
-        return Response("NOT-IMPL")
+        sid = args[0]
+        session : Session = session_manager.existing_session_by_sid(sid)
+        session.wipe_buffer()
+        session_manager.halt_session(session.ip())
+        return Response("UNREG-OK")
 
 
 class CommandParser():
@@ -93,7 +97,7 @@ class Server():
         self.command_set = {
             "REG" : Command(FunctionSet.on_hello, -1),
             "SEND" : Command(FunctionSet.on_send_ok, 2),
-            "UNREG" : Command(FunctionSet.on_unreg, -1)
+            "UNREG" : Command(FunctionSet.on_unreg, 1)
         }
         self.__server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__server.bind((self.__bind_ip, self.__bind_port))
