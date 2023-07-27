@@ -17,7 +17,8 @@ MODULE_REFS = {}
 '''
 This class represents a simple TCP server. It implements simple protocol over TCP - Quoy protocol.
 For now, this class supports virtual host concept using multiserver architecture.
-It is able to load simple modules (plain, Python script files).
+It is able to load simple modules (plain, Python script files), 
+which can be used anywhere inside the code to cleanly implkement different features.
 '''
 class Server():
     def __init__(self, vhost : dict, logger : Logger):
@@ -29,12 +30,13 @@ class Server():
         self.command_set = {
             "REG" : Command(FunctionSet.on_hello, -1),
             "SEND" : Command(FunctionSet.on_send_ok, 2),
-            "UNREG" : Command(FunctionSet.on_unreg, 1)
+            "UNREG" : Command(FunctionSet.on_unreg, 1),
+            ".SYSSTA": Command(FunctionSet.on_systems_status, 2)
         }
         self.__server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__server.bind((self.__bind_ip, self.__bind_port))
         self.__server.listen(5)
-        self.logger.info("Listening on %s:%d" % (self.__bind_ip, self.__bind_port))
+        self.logger.info("Listening on %s:%d and ready to accept connections..." % (self.__bind_ip, self.__bind_port))
 
     '''
     Handle client using raw AF_INET socket (TCP socket). 
@@ -48,17 +50,20 @@ class Server():
                 request = client_socket.recv(4096)
                 if not request:
                     continue
-                self.logger.info("Received: %s on %s" % (request, threading.current_thread().name))
+                self.logger.debug("Received: %s on %s" % (request, threading.current_thread().name))
                 if type(client_socket) is not ssl.SSLSocket and request[0] == 255:
                     self.logger.debug("Received ff byte from %s, skipping over..." % sip)
                     client_socket.close()
                     break
+                if request == b'\r\n':
+                    self.logger.debug("Received CR and NL bytes, probably raw Windows telnet client, skipping over...")
+                    continue
                 command = CommandParser.find_command(request.decode("ascii"), self.command_set)
                 parsed_command = CommandParser.parse_command(request.decode("ascii"), command.body_start_index())
                 args = []
                 for arg_index in range(1, len(parsed_command)):
                     args.append(parsed_command[arg_index])
-                response = command.exec(args, session_manager, [client_socket.getpeername()[0]])
+                response = command.exec(args, session_manager, [client_socket.getpeername()[0], MODULE_REFS])
                 if response:
                     self.logger.debug("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
                     client_socket.sendall(bytes(response.to_str()))

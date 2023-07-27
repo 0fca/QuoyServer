@@ -43,3 +43,33 @@ class FunctionSet():
         session.wipe_buffer()
         session_manager.halt_session(session.ip())
         return Response("UNREG-OK")
+    
+    @staticmethod
+    def on_systems_status(args : list, session_manager : SessionManager, opt_args = []):
+        # FIXME: This is hardcoded for now, but it should be read from DS - Pika Core API
+        systems = {
+            'PikaCore': ['core.lukas-bownik.net', 443], 
+            'PikaNoteAPI': ['note.lukas-bownik.net', 443], 
+            'PikaML': ['ml.lukas-bownik.net', 443]
+        }
+        system_protocols = {
+            'PikaCore': ['TCP', 'HTTP'],
+            'PikaNoteAPI': ['TCP'],
+            'PikaML': ['TCP']
+        }
+        systems_in = args[1].split(",")
+        for system_in in systems_in:
+            if system_in in system_protocols and system_protocols[system_in]:
+                if args[0] == "TCP":
+                    m = opt_args[len(opt_args) - 1]['mod_raw_health_check']
+                    health_check_func = getattr(m, "conn_check")
+                    health_result = health_check_func(systems[system_in][0], systems[system_in][1])
+                    return Response(f"SYSSTA={health_result}")
+                if args[0] == "HTTP":
+                    m = opt_args[len(opt_args) - 1]['mod_http_health_check']
+                    health_check_func = getattr(m, "conn_check")
+                    health_result = health_check_func(systems[system_in][0], systems[system_in][1])
+                    return Response(f"SYSSTA={health_result}")
+            else:
+                return Response("BAD-RQST-HDR")
+

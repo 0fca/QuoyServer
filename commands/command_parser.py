@@ -31,7 +31,7 @@ class CommandParser():
             # Body is now a single string containing spaces, so we can add it as a last segment to parsed command list
             parsed_command.append(body.lstrip())
         else:
-            # There is just a name of a command, so chunks is equals to resulted parsed command
+            # There is just a name of a command, so chunks equals to resulted parsed command
             parsed_command = chunks
         return parsed_command
     
