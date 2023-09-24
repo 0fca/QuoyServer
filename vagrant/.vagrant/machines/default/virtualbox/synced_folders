@@ -1,0 +1,1 @@
+{"virtualbox":{"/vagrant/quoy_server":{"guestpath":"/vagrant/quoy_server","hostpath":"/home/ofca/Projects/QuoyServer","disabled":false,"__vagrantfile":true},"/vagrant":{"guestpath":"/vagrant","hostpath":"/home/ofca/Projects/QuoyServer/vagrant","disabled":false,"__vagrantfile":true}}}

@@ -27,6 +27,7 @@ class Server():
         self.event_locks = {}
         self.logger = logger
         self.__session_manager = None
+        # TODO: The commands should be outside this file - it shall be done using "modules" mechanism of the server
         self.command_set = {
             "REG" : Command(FunctionSet.on_hello, -1),
             "SEND" : Command(FunctionSet.on_send_ok, 2),

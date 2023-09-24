@@ -4,7 +4,7 @@ import os
 
 MODULE_NAME = "ssl"
 '''
-This module is creates a proper client object for a raw TCP socket wrapped up with SSLContext layer.
+This module creates a proper client object for a raw TCP socket wrapped up with SSLContext layer.
 In other words, it allows server to communicate with clients using TLSv1.2
 '''
 def __mod_init__(params: dict):
