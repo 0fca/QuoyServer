@@ -14,7 +14,7 @@ class FunctionSet():
             r = Response("IN-USE")
             return r
         session : Session = session_manager.existing_session_by_ip(opt_args[0])
-        if session:
+        if session and not session.username():
             r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
             session.assign_user(args[0])
             return r
@@ -40,9 +40,8 @@ class FunctionSet():
     def on_unreg(args : list, session_manager : SessionManager, opt_args = []):
         sid = args[0]
         session : Session = session_manager.existing_session_by_sid(sid)
-        session.wipe_buffer()
         session_manager.halt_session(session.ip())
-        return Response("UNREG-OK")
+        return None
     
     @staticmethod
     def on_systems_status(args : list, session_manager : SessionManager, opt_args = []):

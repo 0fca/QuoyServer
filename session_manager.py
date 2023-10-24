@@ -59,12 +59,16 @@ class Session():
 
     def wipe_buffer(self):
         self.__buffer_out.clear()
+    
+    def __str__(self) -> str:
+        return f"{self.__username if self.__username else 'Not registered client'} on {self.__ip}"
 
 
 class SessionManager():
     def __init__(self):
         self.__session_queue : list[Session] = []
         self.logger = logger.Logger()
+        self.server_halted = False
 
     def create(self, socket : socket.socket) -> Session:
         ip = socket.getpeername()[0]
@@ -84,16 +88,17 @@ class SessionManager():
     
     def existing_session_by_ip(self, ip : str) -> Session:
         sessions: list[Session] = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
-        return sessions[0] if len(sessions) > 0 else None
+        return sessions[0] if len(sessions) == 1 else None
 
     def existing_session_by_sid(self, sid : str) -> Session:
         session : Session = list(filter(lambda s : (s.sid() == sid), self.__session_queue))
         return session
+    
     def existing_sessions(self) -> list[Session]:
         return self.__session_queue
     
     def remove_session(self, session : Session):
-        self.logger.debug("Removing session %s" % (session.username()))
+        self.logger.debug("Removing session %s" % (session.ip()))
         self.__session_queue.remove(session)
         del session
     

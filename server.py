@@ -11,6 +11,7 @@ from session_manager import SessionManager
 from commands.command_parser import CommandParser
 from commands.command import Command
 from commands.function_set import FunctionSet
+from console.console_server import launch_server
 
 MODULE_REFS = {}
 
@@ -24,9 +25,9 @@ class Server():
     def __init__(self, vhost : dict, logger : Logger):
         self.__bind_ip = vhost["HOST"]
         self.__bind_port = vhost["PORT"]
-        self.event_locks = {}
         self.logger = logger
         self.__session_manager = None
+        self.keep_running = Event()
         # TODO: The commands should be outside this file - it shall be done using "modules" mechanism of the server
         self.command_set = {
             "REG" : Command(FunctionSet.on_hello, -1),
@@ -35,8 +36,10 @@ class Server():
             ".SYSSTA": Command(FunctionSet.on_systems_status, 2)
         }
         self.__server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.__server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.__server.setblocking(False)
         self.__server.bind((self.__bind_ip, self.__bind_port))
-        self.__server.listen(5)
+        self.__server.listen(0)
         self.logger.info("Listening on %s:%d and ready to accept connections..." % (self.__bind_ip, self.__bind_port))
 
     '''
@@ -45,11 +48,13 @@ class Server():
     Default length of packets is 4096 bytes.
     '''
     def __handle_client(self, client_socket : socket.socket, event : Event, session_manager : SessionManager):
+        client_socket.setblocking(False)
         sip = client_socket.getpeername()[0]
         while not event.is_set():
             try:
                 request = client_socket.recv(4096)
                 if not request:
+                    time.sleep(0.01)
                     continue
                 self.logger.debug("Received: %s on %s" % (request, threading.current_thread().name))
                 if type(client_socket) is not ssl.SSLSocket and request[0] == 255:
@@ -69,10 +74,8 @@ class Server():
                     self.logger.debug("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
                     client_socket.sendall(bytes(response.to_str()))
             except Exception as e:
-                self.logger.severe(str(e))
-                client_socket.close()
-                break
-            time.sleep(0.5)
+                time.sleep(0.05)
+                continue
         self.logger.debug("Halting session %s ..." % sip)
         session_manager.halt_session(sip)
 
@@ -80,9 +83,10 @@ class Server():
     This method is passed as a invokeable to isolated thread scope so writing and reading of TCP packets is isolated one from each other.
     '''
     def __handle_buffer_out(self, logger : Logger, session_manager : SessionManager):
-        while True:
+        while not self.keep_running.is_set():
             session_manager.handle_buffer_out()
             time.sleep(1)
+        self.logger.debug("BufferHandler exiting, because server has been stopped!")
 
     '''
     This method allows to launch the Server class instance, it can be called only once per Server instance.
@@ -90,11 +94,28 @@ class Server():
     '''
     def launch(self, vconfig : dict):
         self.__session_manager = SessionManager()
-        client_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer")
-        client_handler.start()
+        buffer_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer", daemon=True)
+        buffer_handler.start()
+        socket_thread = threading.Thread(target = launch_server, args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", logger, self.__session_manager, self.keep_running), name="ConsoleSocketThread", daemon=True)
+        socket_thread.start()
+        client_handler = None
         while True:
+            client = None
+            addr = None
+            try:
+                if not self.keep_running.is_set():
+                    client, addr = self.__server.accept()
+            except Exception as e:
+                time.sleep(0.05)
+            finally:
+                if self.keep_running.is_set():
+                    self.__server.shutdown(socket.SHUT_RDWR)
+                    self.__server.close()
+                    self.logger.info("Server received halt command, halting...")
+                    break
+            if not client and not addr:
+                continue
             self.logger.info("Active Thread Count: %s" % threading.active_count())
-            client, addr = self.__server.accept()
             # This if is a contextual check whether the module ssl is enabled, if so we should try creating SSL socket
             if "ssl" in modules_config["ENABLED"] and vconfig["TLS"]:
                 # Read a reference to a module - all references are now loaded in an entrypoint
@@ -108,9 +129,12 @@ class Server():
                 })
             s = self.__session_manager.create(client)
             self.logger.debug("Accepted connection from: %s:%d" % (addr[0], addr[1]))
-            client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager), name="SocketHandler%s" % (addr[0]))
-            client_handler.start()
-            
+            client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager), name="SocketHandler%s" % (addr[0]), daemon=True)
+            client_handler.start()  
+        self.logger.info("Server main loop stopped! Awaiting some time to check whether workers exited as well.")
+        time.sleep(1)
+        self.logger.debug(f"{buffer_handler.name} - Is Alive: {buffer_handler.is_alive()} - Is Daemon: {buffer_handler.daemon}")
+        self.logger.debug(f"{socket_thread.name} - Is Alive: {socket_thread.is_alive()} - Is Daemon: {socket_thread.daemon}")
 # Just an entrypoint
 if __name__ == '__main__':
     module_loader = ModuleLoader()
