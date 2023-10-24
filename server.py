@@ -47,12 +47,13 @@ class Server():
     Default length of packets is 4096 bytes.
     '''
     def __handle_client(self, client_socket : socket.socket, event : Event, session_manager : SessionManager):
-        sip = client_socket.getpeername()[0]
         client_socket.setblocking(False)
+        sip = client_socket.getpeername()[0]
         while not event.is_set():
             try:
                 request = client_socket.recv(4096)
                 if not request:
+                    time.sleep(0.01)
                     continue
                 self.logger.debug("Received: %s on %s" % (request, threading.current_thread().name))
                 if type(client_socket) is not ssl.SSLSocket and request[0] == 255:
@@ -72,8 +73,8 @@ class Server():
                     self.logger.debug("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
                     client_socket.sendall(bytes(response.to_str()))
             except Exception as e:
+                time.sleep(0.05)
                 continue
-            time.sleep(0.5)
         self.logger.debug("Halting session %s ..." % sip)
         session_manager.halt_session(sip)
 
@@ -92,9 +93,9 @@ class Server():
     '''
     def launch(self, vconfig : dict):
         self.__session_manager = SessionManager()
-        buffer_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer", daemon=False)
+        buffer_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer", daemon=True)
         buffer_handler.start()
-        socket_thread = threading.Thread(target = launch_server, args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", logger, self.__session_manager, self.keep_running), name="ConsoleSocketThread", daemon=False)
+        socket_thread = threading.Thread(target = launch_server, args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", logger, self.__session_manager, self.keep_running), name="ConsoleSocketThread", daemon=True)
         socket_thread.start()
         client_handler = None
         while True:
@@ -104,9 +105,11 @@ class Server():
                 if not self.keep_running.is_set():
                     client, addr = self.__server.accept()
             except Exception as e:
-                pass
+                time.sleep(0.05)
             finally:
                 if self.keep_running.is_set():
+                    self.__server.shutdown(socket.SHUT_RDWR)
+                    self.__server.close()
                     self.logger.info("Server received halt command, halting...")
                     break
             if not client and not addr:
@@ -125,10 +128,8 @@ class Server():
                 })
             s = self.__session_manager.create(client)
             self.logger.debug("Accepted connection from: %s:%d" % (addr[0], addr[1]))
-            client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager), name="SocketHandler%s" % (addr[0]), daemon=False)
-            client_handler.start()
-        self.__server.shutdown(socket.SHUT_RDWR)
-        self.__server.close()
+            client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager), name="SocketHandler%s" % (addr[0]), daemon=True)
+            client_handler.start()  
         self.logger.info("Server main loop stopped! Awaiting some time to check whether workers exited as well.")
         time.sleep(1)
         self.logger.debug(f"{buffer_handler.name} - Is Alive: {buffer_handler.is_alive()} - Is Daemon: {buffer_handler.daemon}")
