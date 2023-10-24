@@ -59,6 +59,9 @@ class Session():
 
     def wipe_buffer(self):
         self.__buffer_out.clear()
+    
+    def __str__(self) -> str:
+        return f"{self.__username if self.__username else 'Not registered client'} on {self.__ip}"
 
 
 class SessionManager():
@@ -85,7 +88,7 @@ class SessionManager():
     
     def existing_session_by_ip(self, ip : str) -> Session:
         sessions: list[Session] = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
-        return sessions[0] if len(sessions) > 0 else None
+        return sessions[0] if len(sessions) == 1 else None
 
     def existing_session_by_sid(self, sid : str) -> Session:
         session : Session = list(filter(lambda s : (s.sid() == sid), self.__session_queue))
