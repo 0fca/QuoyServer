@@ -3,3 +3,4 @@ base.cer
 cert.key
 venv
 vagrant
+*.db

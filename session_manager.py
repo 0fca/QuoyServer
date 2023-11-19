@@ -1,4 +1,3 @@
-from ssl import SSLSocket
 import logger
 import socket
 import uuid
