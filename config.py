@@ -7,6 +7,12 @@ NET_CONF = {
         "KEY_FILE": "cert.key"
     }]
 }
+USER_CONF = {
+
+}
+DB_CONF = {
+    "db_name": "user.db"
+}
 MODULES = {
     "MODULE_DIR": "./modules",
     "ENABLED": [
