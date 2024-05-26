@@ -5,3 +5,4 @@ venv
 vagrant
 *.db
 test.py
+config.py
