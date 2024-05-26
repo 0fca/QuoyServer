@@ -4,3 +4,4 @@ cert.key
 venv
 vagrant
 *.db
+test.py
