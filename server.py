@@ -13,6 +13,9 @@ from commands.command import Command
 from commands.function_set import FunctionSet
 from console.console_server import launch_server
 
+'''
+The dictionary represents a dependency container of plug-in server modules
+'''
 MODULE_REFS = {}
 
 '''
@@ -93,7 +96,11 @@ class Server():
     It allows to launch server using vhost configs including TLS support.
     '''
     def launch(self, vconfig : dict):
-        self.__session_manager = SessionManager()
+        if "persistent_sessions" in modules_config["ENABLED"]:
+            self.__session_manager = SessionManager(MODULE_REFS["mod_persistent_sessions"])
+        else:
+            self.__session_manager = SessionManager()
+
         buffer_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer", daemon=True)
         buffer_handler.start()
         socket_thread = threading.Thread(target = launch_server, args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", logger, self.__session_manager, self.keep_running), name="ConsoleSocketThread", daemon=True)

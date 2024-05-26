@@ -14,9 +14,10 @@ class FunctionSet():
             r = Response("IN-USE")
             return r
         session : Session = session_manager.existing_session_by_ip(opt_args[0])
-        if session and not session.username():
+        if session:
             r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
             session.assign_user(args[0])
+            session_manager.update_session(session.sid())
             return r
         else:
             return None

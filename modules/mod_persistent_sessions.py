@@ -1,42 +1,63 @@
 from persistence.sqlite import Sqlite
 from sqlalchemy import select
-from sqlalchemy import Integer, String
+from sqlalchemy import String, JSON
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
-from sqlalchemy import bindparam
+from sqlalchemy.orm import Session
+
+import json
 
 from modules.mod_users import User
 
 MODULE_NAME = "persistent_sessions"
-
-def __init__():
-    pass
+    
 
 class Base(DeclarativeBase):
     pass
 
-
-class PersistentSession:
+class PersistentSession(Base):
     __tablename__ = "session"
-    id = mapped_column(String, primary_key=True, autoincrement=True)
-    json = mapped_column(String, nullable=False)
+    id = mapped_column(String, primary_key=True)
+    json = mapped_column(JSON, nullable=False)
 
 class Sessions:
     __sqlite_engine__ = None
     def __init__(self):
+        self.__init_session__()
+
+    def find_by_id(self, id) -> PersistentSession:
+        s = select(PersistentSession).where(PersistentSession.id == id)
+        r = self.__execute__stmt__(s)
+        return r
+
+    def append_session(self, session):
+        self.__init_session__()
+        ps = self.find_by_id(session.sid())
+        if ps is None:
+            ps = PersistentSession()
+            ps.id = session.sid()
+    
+        ps.json = dict(sid=session.sid(), ip=session.ip(), username=session.username())
+        with Session(self.__sqlite_engine__) as s:
+            s.add(ps)
+            s.commit()
+        self.__sqlite_engine__.dispose()
+
+    def forget_session(self, id):
+        self.__init_session__()
+        with Session(self.__sqlite_engine__) as s:
+            tbd = self.find_by_id(id)
+            s.delete(tbd)
+            s.commit()
+        self.__sqlite_engine__.dispose()
+
+    def __execute__stmt__(self, stmt) -> PersistentSession:
+        with Session(self.__sqlite_engine__) as s:
+            return s.scalar(stmt)
+    
+    def __init_session__(self):
         sqlite = Sqlite()
-        if not sqlite.is_engine_initialized():
-            self.__sqlite_engine__ = sqlite.init_engine()
         self.__sqlite_engine__ = sqlite.engine()
 
-    def find_by_id(self, id: int):
-        s = select(PersistentSession).where(PersistentSession.id == bindparam("id"))
-        ps = self.__execute__stmt__(s, [id])
-        print(ps)
-
-    def __execute__stmt__(self, stmt, params: list):
-        with self.__sqlite_engine__.connect() as c:
-            cursor = c.connection.cursor()
-            cursor.execute(str(stmt), params)
-            return cursor.fetchall()
+def __mod_init__() -> Sessions:
+    return Sessions()

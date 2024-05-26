@@ -2,7 +2,7 @@ import socket
 import os
 from logger import Logger
 from multiprocessing import Event
-from session_manager import SessionManager
+from session_manager import SessionManager, Session
 from time import sleep
 
 socket_path = None
@@ -16,6 +16,14 @@ def as_bytes(msg: str) -> bytes:
 
 def __console_prompt__() -> str:
     return "\n~>"
+
+def __adress_family__(s: Session) -> str:
+    info = socket.getaddrinfo(s.ip(), s.socket().getpeername()[1], proto=s.socket().proto, family=s.socket().family)
+    # info returns a list of tuples 
+    # all sockets types for this object 
+    # so we take first one and the first index in tuple - it is always AF object
+    # AF object as string is in format: AddressFamilt.AF_INET thus we split it by "."
+    return str(info[0][0]).split(".")[1]
 
 def halt_server(sock_conn: socket, session_manager: SessionManager, keep_running: Event, logger: Logger):
     if not keep_running.is_set():
@@ -37,8 +45,8 @@ def server_stat(sock_conn: socket, session_manager: SessionManager, keep_running
         sock_conn.sendall(as_bytes(__console_prompt__()))
         return
     for s in sessions:
-        tmp = f"{s.ip()} as {s.username() if s.username() else '?'} using {s.socket().family}"
-        sock_conn.sendall(as_bytes(tmp))
+        tmp = f"{s.ip()} as {s.username() if s.username() else '?'} using {__adress_family__(s)}"
+        sock_conn.sendall(as_bytes(__format_str__(tmp)))
     sock_conn.sendall(as_bytes(f"{__console_prompt__()}"))
 
 

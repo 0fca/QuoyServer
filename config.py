@@ -16,7 +16,9 @@ DB_CONF = {
 MODULES = {
     "MODULE_DIR": "./modules",
     "ENABLED": [
-        "ssl"
+        "ssl",
+        "persistent_sessions",
+        "discord_messenger"
     ]
 }
 LOG_CONF = {
