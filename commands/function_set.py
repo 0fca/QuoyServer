@@ -19,6 +19,7 @@ class FunctionSet():
             r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
             session.assign_user(args[0])
             if 'persistent_sessions' in mod_conf['ENABLED']:
+                print(session)
                 session_manager.update_session(session.sid())
             return r
         else:

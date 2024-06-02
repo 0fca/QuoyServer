@@ -6,3 +6,4 @@ vagrant
 *.db
 test.py
 config.py
+exit.lock
