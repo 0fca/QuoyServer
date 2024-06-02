@@ -1,5 +1,6 @@
 from config import MODULES as modules_config
 from config import NET_CONF as net_conf
+from config import RUNTIME as runtime_conf
 from multiprocessing import Event
 from module_loader import ModuleLoader
 import socket
@@ -12,6 +13,8 @@ from commands.command_parser import CommandParser
 from commands.command import Command
 from commands.function_set import FunctionSet
 from console.console_server import launch_server
+import datetime
+import os
 
 '''
 The dictionary represents a dependency container of plug-in server modules
@@ -26,6 +29,7 @@ which can be used anywhere inside the code to cleanly implkement different featu
 '''
 class Server():
     def __init__(self, vhost : dict, logger : Logger):
+        self.is_crash_recovery_set : bool = False
         self.__bind_ip = vhost["HOST"]
         self.__bind_port = vhost["PORT"]
         self.logger = logger
@@ -48,14 +52,14 @@ class Server():
     '''
     Handle client using raw AF_INET socket (TCP socket). 
     This handler is compatible with either Linux and Windows networking abstraction layer.
-    Default length of packets is 4096 bytes.
+    Default length of packets is 8192 bytes.
     '''
     def __handle_client(self, client_socket : socket.socket, event : Event, session_manager : SessionManager):
         client_socket.setblocking(False)
         sip = client_socket.getpeername()[0]
         while not event.is_set():
             try:
-                request = client_socket.recv(4096)
+                request = client_socket.recv(runtime_conf['BUFFER_LEN'])
                 if not request:
                     time.sleep(0.01)
                     continue
@@ -91,6 +95,15 @@ class Server():
             time.sleep(1)
         self.logger.debug("BufferHandler exiting, because server has been stopped!")
 
+    def __create_marker_file__(self) -> None:
+        marker_file_name = 'exit.lock'
+        with open(marker_file_name, "+a") as f:
+            f.write(str(datetime.datetime.now()))
+    
+    def __cleanup_marker_file(self) -> None:
+        marker_file_name = 'exit.lock'
+        os.remove(marker_file_name) 
+
     '''
     This method allows to launch the Server class instance, it can be called only once per Server instance.
     It allows to launch server using vhost configs including TLS support.
@@ -101,11 +114,25 @@ class Server():
         else:
             self.__session_manager = SessionManager()
 
-        buffer_handler = threading.Thread(target = self.__handle_buffer_out, args=(self.logger,self.__session_manager,), name="Buffer_Writer", daemon=True)
+        buffer_handler = threading.Thread(target = self.__handle_buffer_out, 
+                                          args=(self.logger,
+                                                self.__session_manager,), 
+                                                name="Buffer_Writer", 
+                                                daemon=True
+                                          )
         buffer_handler.start()
-        socket_thread = threading.Thread(target = launch_server, args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", logger, self.__session_manager, self.keep_running), name="ConsoleSocketThread", daemon=True)
+        socket_thread = threading.Thread(target = launch_server, 
+                                         args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", 
+                                            logger, 
+                                            self.__session_manager, 
+                                            self.keep_running), 
+                                         name="ConsoleSocketThread", 
+                                         daemon=True
+                                         )
         socket_thread.start()
         client_handler = None
+        if runtime_conf['CRASH_RECOVERY']:
+            self.__create_marker_file__()
         while True:
             client = None
             addr = None
@@ -142,6 +169,8 @@ class Server():
         time.sleep(1)
         self.logger.debug(f"{buffer_handler.name} - Is Alive: {buffer_handler.is_alive()} - Is Daemon: {buffer_handler.daemon}")
         self.logger.debug(f"{socket_thread.name} - Is Alive: {socket_thread.is_alive()} - Is Daemon: {socket_thread.daemon}")
+        self.logger.info(f"It seems that server exits gracefully, removing exit.lock file.")
+        self.__cleanup_marker_file()
 # Just an entrypoint
 if __name__ == '__main__':
     module_loader = ModuleLoader()

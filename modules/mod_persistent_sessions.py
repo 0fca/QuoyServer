@@ -1,6 +1,7 @@
 from persistence.sqlite import Sqlite
 from sqlalchemy import select
 from sqlalchemy import String, JSON
+from sqlalchemy import func
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import Session
@@ -50,6 +51,26 @@ class Sessions:
             s.delete(tbd)
             s.commit()
         self.__sqlite_engine__.dispose()
+
+    def sessions(self, count: int = 0) -> list[PersistentSession]:
+        self.__init_session__()
+        s = select(PersistentSession)
+        if count > 0:
+            s = s.limit(count)
+        psl = self.__execute__stmt__(s)
+        self.__sqlite_engine__.dispose()
+        return psl if psl is not None else []
+    
+    def find_by_ip(self, ip: str) -> PersistentSession:
+        self.__init_session__()
+        with Session(self.__sqlite_engine__) as s:
+            r = func.json_each(PersistentSession.json, "$.ip").table_valued(
+                "value", joins_implicitly=True
+            )
+            rs = s.query(PersistentSession).filter(r.c.value == ip).one_or_none()          
+        self.__sqlite_engine__.dispose()
+        
+        return rs
 
     def __execute__stmt__(self, stmt) -> PersistentSession:
         with Session(self.__sqlite_engine__) as s:

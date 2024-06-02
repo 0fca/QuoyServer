@@ -1,6 +1,7 @@
 from session_manager import SessionManager
 from session_manager import Response
 from session_manager import Session
+from config import MODULES as mod_conf
 
 '''
 This class represents a set of functions which is to be used by a server as a valid set of commands it understands
@@ -17,7 +18,8 @@ class FunctionSet():
         if session:
             r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
             session.assign_user(args[0])
-            session_manager.update_session(session.sid())
+            if 'persistent_sessions' in mod_conf['ENABLED']:
+                session_manager.update_session(session.sid())
             return r
         else:
             return None

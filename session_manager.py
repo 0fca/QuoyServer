@@ -1,10 +1,10 @@
 import logger
 import socket
 import uuid
-import json
 
+from config import RUNTIME as runtime_conf
 from modules.mod_persistent_sessions import Sessions, PersistentSession
-from threading import Event, Thread
+from threading import Event
 
 class Response():
     def __init__(self, payload : str):
@@ -27,6 +27,9 @@ class Session():
 
     def assing_socket(self, socket : socket.socket):
         self.__socket = socket
+    
+    def assign_sid(self, sid : str):
+        self.__sid = sid
 
     def socket(self) -> socket.socket:
         return self.__socket
@@ -76,19 +79,25 @@ class SessionManager():
             mod_init_func = getattr(mod_ref, "__mod_init__")
             self.sessions = mod_init_func()
             self.logger.info("SessionManager loaded with persistent session support (SQLite)")
+            if runtime_conf['CRASH_RECOVERY']:
+                self.logger.info("Recovery check found exit.lock file, trying to recover sessions from persistent store")
 
     def create(self, socket : socket.socket) -> Session:
         ip = socket.getpeername()[0]
         event = Event()
         s = Session(ip, event)
         s.assing_socket(socket)
-        s.assign_user(s.sid())
+        if runtime_conf['CRASH_RECOVERY'] and self.sessions:
+            rs = self.sessions.find_by_ip(ip)
+            if rs is not None:
+                s = self.__map_recovered_session(rs, s, ip)
         filtered_sessions = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
         # FIXME: This piece of code works, however it should handle this situation in some other way: 
         # returning some meaningful value determining an error or throwing an except
         if not filtered_sessions:
             self.__session_queue.append(s)
-            self.__update_session_store__()
+            if self.sessions:
+                self.__update_session_store__()
 
         return s
 
@@ -110,10 +119,18 @@ class SessionManager():
     
     def remove_session(self, session : Session):
         self.logger.debug("Removing session %s" % (session.ip()))
-        self.sessions.forget_session(session.sid())
+        if self.sessions:
+            self.sessions.forget_session(session.sid())
         self.__session_queue.remove(session)
         del session
-    
+
+    def __map_recovered_session(self, rps : PersistentSession,  s : Session, ip : str) -> Session:
+        psip = rps.json['ip']
+        if psip == ip:
+            s.assign_user(rps.json['username'])
+            s.assign_sid(rps.json['sid'])
+        return s
+
     def __update_session_store__(self) -> None:
         if self.__session_queue:
             for queued_session in self.__session_queue:
@@ -123,6 +140,7 @@ class SessionManager():
 
     def __single_session_update(self, session: Session) -> None:
         self.sessions.append_session(session)
+
 
     '''
     This method handles writing to the out buffer of server for each user session.
