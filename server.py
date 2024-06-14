@@ -40,7 +40,8 @@ class Server():
             "REG" : Command(FunctionSet.on_hello, -1),
             "SEND" : Command(FunctionSet.on_send_ok, 2),
             "UNREG" : Command(FunctionSet.on_unreg, 1),
-            ".SYSSTA": Command(FunctionSet.on_systems_status, 2)
+            ".SYSSTA": Command(FunctionSet.on_systems_status, 2),
+            ".USRNFO": Command(FunctionSet.on_user_info, 2)
         }
         self.__server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

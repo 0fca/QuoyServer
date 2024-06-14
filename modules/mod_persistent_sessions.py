@@ -6,7 +6,6 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import Session
 
-import json
 
 from modules.mod_users import User
 

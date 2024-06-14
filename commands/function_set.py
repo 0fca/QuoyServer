@@ -3,6 +3,8 @@ from session_manager import Response
 from session_manager import Session
 from config import MODULES as mod_conf
 
+import json
+
 '''
 This class represents a set of functions which is to be used by a server as a valid set of commands it understands
 Methods of this class are mapped to proper command names using Command class objects
@@ -19,7 +21,6 @@ class FunctionSet():
             r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
             session.assign_user(args[0])
             if 'persistent_sessions' in mod_conf['ENABLED']:
-                print(session)
                 session_manager.update_session(session.sid())
             return r
         else:
@@ -75,4 +76,14 @@ class FunctionSet():
                     return Response(f"SYSSTA={health_result}")
             else:
                 return Response("BAD-RQST-HDR")
+            
+    @staticmethod
+    def on_user_info(args: list, session_manager: SessionManager, opt_args = []):
+        m = opt_args[len(opt_args) - 1]['mod_users']
+        sid = args[0]
+        users = getattr(m, "__mod_init__")()
+        session = session_manager.existing_session_by_sid(sid)
+        user = users.find_by_name(session[0].username())
+        information = user.read_from_data("about_user")
+        return Response(f".USRNFO={json.dumps(information)}")
 

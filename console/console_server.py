@@ -3,7 +3,6 @@ import os
 from logger import Logger
 from multiprocessing import Event
 from session_manager import SessionManager, Session
-from time import sleep
 
 socket_path = None
 encoding = "ASCII"
@@ -22,7 +21,7 @@ def __adress_family__(s: Session) -> str:
     # info returns a list of tuples 
     # all sockets types for this object 
     # so we take first one and the first index in tuple - it is always AF object
-    # AF object as string is in format: AddressFamilt.AF_INET thus we split it by "."
+    # AF object as string is in format: AddressFamily.AF_INET thus we split it by "."
     return str(info[0][0]).split(".")[1]
 
 def halt_server(sock_conn: socket, session_manager: SessionManager, keep_running: Event, logger: Logger):
@@ -84,7 +83,9 @@ def launch_server(socket_file: str, logger : Logger, session_manager: SessionMan
                 logger.debug(f'Console Server received data: {data.decode()}')
                 # Generify this call
                 # Move this to subfile
-                console_commands[data.decode().strip()](sock_conn=connection, session_manager=session_manager, keep_running=keep_running, logger=logger)
+                cmd_input = data.decode().strip()
+                if cmd_input in console_commands:
+                    console_commands[cmd_input](sock_conn=connection, session_manager=session_manager, keep_running=keep_running, logger=logger)
         finally:
             connection.close()
             os.unlink(socket_path)
