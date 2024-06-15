@@ -16,9 +16,15 @@ DB_CONF = {
 MODULES = {
     "MODULE_DIR": "./modules",
     "ENABLED": [
-        "ssl"
+        "ssl",
+        "persistent_sessions",
+        "discord_messenger"
     ]
 }
 LOG_CONF = {
     "LOG_LEVEL": "Debug"
+}
+RUNTIME = {
+    "CRASH_RECOVERY": True,
+    "BUFFER_LEN": 8192
 }

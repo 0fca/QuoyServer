@@ -1,6 +1,9 @@
 import logger
 import socket
 import uuid
+
+from config import RUNTIME as runtime_conf
+from modules.mod_persistent_sessions import Sessions, PersistentSession
 from threading import Event
 
 class Response():
@@ -12,7 +15,7 @@ class Response():
 
 class Session():
     def __init__(self, ip : str, event : Event):
-        self.__sid = uuid.uuid4()
+        self.__sid = uuid.uuid4().hex
         self.__ip = ip
         self.__socket = None
         self.__username = ""
@@ -24,6 +27,9 @@ class Session():
 
     def assing_socket(self, socket : socket.socket):
         self.__socket = socket
+    
+    def assign_sid(self, sid : str):
+        self.__sid = sid
 
     def socket(self) -> socket.socket:
         return self.__socket
@@ -64,25 +70,40 @@ class Session():
 
 
 class SessionManager():
-    def __init__(self):
+    def __init__(self, mod_ref = None):
         self.__session_queue : list[Session] = []
         self.logger = logger.Logger()
         self.server_halted = False
+        self.sessions : Sessions = None
+        if mod_ref is not None:
+            mod_init_func = getattr(mod_ref, "__mod_init__")
+            self.sessions = mod_init_func()
+            self.logger.info("SessionManager loaded with persistent session support (SQLite)")
+            if runtime_conf['CRASH_RECOVERY']:
+                self.logger.info("Recovery check found exit.lock file, trying to recover sessions from persistent store")
 
     def create(self, socket : socket.socket) -> Session:
         ip = socket.getpeername()[0]
         event = Event()
         s = Session(ip, event)
         s.assing_socket(socket)
+        if runtime_conf['CRASH_RECOVERY'] and self.sessions:
+            rs = self.sessions.find_by_ip(ip)
+            if rs is not None:
+                s = self.__map_recovered_session(rs, s, ip)
         filtered_sessions = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
         # FIXME: This piece of code works, however it should handle this situation in some other way: 
         # returning some meaningful value determining an error or throwing an except
         if not filtered_sessions:
             self.__session_queue.append(s)
+            if self.sessions:
+                self.__update_session_store__()
+
         return s
 
     def existing_session_by_username(self, username : str) -> Session:
         sessions : Session = list(filter(lambda s : (s.username() == username), self.__session_queue))
+
         return sessions[0] if len(sessions) > 0 else None
     
     def existing_session_by_ip(self, ip : str) -> Session:
@@ -98,9 +119,29 @@ class SessionManager():
     
     def remove_session(self, session : Session):
         self.logger.debug("Removing session %s" % (session.ip()))
+        if self.sessions:
+            self.sessions.forget_session(session.sid())
         self.__session_queue.remove(session)
         del session
-    
+
+    def __map_recovered_session(self, rps : PersistentSession,  s : Session, ip : str) -> Session:
+        psip = rps.json['ip']
+        if psip == ip:
+            s.assign_user(rps.json['username'])
+            s.assign_sid(rps.json['sid'])
+        return s
+
+    def __update_session_store__(self) -> None:
+        if self.__session_queue:
+            for queued_session in self.__session_queue:
+                session = self.sessions.find_by_id(queued_session.username())
+                if session is None:
+                    self.sessions.append_session(queued_session)
+
+    def __single_session_update(self, session: Session) -> None:
+        self.sessions.append_session(session)
+
+
     '''
     This method handles writing to the out buffer of server for each user session.
     It uses a concept of event lock objects to properly handle access to a session object. 
@@ -111,7 +152,7 @@ class SessionManager():
         for session in self.existing_sessions():
                 socket = session.socket()
                 if session and session.username():
-                    # As of a fact thath buffer out is actually shared between all sessions, 
+                    # As of a fact that buffer out is actually shared between all sessions, 
                     # we need to find all the messages for current session. 
                     for msg in session.read_all_for_username(session.username()):
                         try:
@@ -138,3 +179,8 @@ class SessionManager():
         sessions : list[Session] = list(filter(lambda s : (s.ip() == sip), self.__session_queue))
         if sessions and sessions[0] in self.__session_queue:
             self.remove_session(sessions[0])
+
+    def update_session(self, sid: str):
+        sessions : list[Session] = list(filter(lambda s : (s.sid() == sid), self.__session_queue))
+        if sessions and sessions[0]:
+            self.__single_session_update(sessions[0])

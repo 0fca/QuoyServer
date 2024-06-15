@@ -1,18 +1,16 @@
 from config import USER_CONF
 from persistence.sqlite import Sqlite
-from sqlalchemy import select
-from sqlalchemy import Integer, String
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
+from sqlalchemy import select, func
+from sqlalchemy import Integer, String, JSON
+from sqlalchemy.orm import DeclarativeBase, Session, mapped_column
 from sqlalchemy import bindparam
 
 import json
 
 MODULE_NAME = "users"
 
-def __init__():
-    pass
+def __mod_init__():
+    return Users()
 
 class Base(DeclarativeBase):
     pass
@@ -22,36 +20,35 @@ class User(Base):
     __tablename__ = "user"
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     name = mapped_column(String, nullable=False)
-    registered_sessions = mapped_column(String, nullable=False)
+    user_data = mapped_column(JSON, nullable=False)
 
-    def sessions(self) -> list:
-        return json.loads(self.registered_sessions)
+    def read_from_data(self, key: str):
+        return self.user_data[key] if self.user_data is not None else None
         
 class Users:
     __sqlite_engine__ = None
     def __init__(self):
-        sqlite = Sqlite()
-        if not sqlite.is_engine_initialized():
-            self.__sqlite_engine__ = sqlite.init_engine()
-        self.__sqlite_engine__ = sqlite.engine()
+        self.__init_session__()
 
     def find_by_id(self, id) -> User:
-        s = select(User).where(User.id == bindparam('id'))
-        u = self.__execute__stmt__(s, [id])
+        self.__init_session__()
+        s = select(User).where(User.id == id)
+        u = self.__execute__stmt__(s)
+        self.__sqlite_engine__.dispose()
         return u[0] if len(u) > 0 else None
 
     def find_by_name(self, username: str) -> User:
-        s = select(User).where(User.name == bindparam('username'))
-        u = self.__execute__stmt__(s, [username])
-        return u[0] if len(u) > 0 else None
-    
-    def find_by_session(self, sid: str):
-        s = select(User).where(User.registered_sessions.contains(sid))
-        print(s)
+        self.__init_session__()
+        s = select(User).where(User.name == username)
+        u = self.__execute__stmt__(s)
+        self.__sqlite_engine__.dispose()
+        return u
 
-    def __execute__stmt__(self, stmt, params: list):
-        with self.__sqlite_engine__.connect() as c:
-            cursor = c.connection.cursor()
-            cursor.execute(str(stmt), params)
-            return cursor.fetchall()
-            
+
+    def __execute__stmt__(self, stmt) -> User:
+        with Session(self.__sqlite_engine__) as s:
+            return s.scalar(stmt)
+    
+    def __init_session__(self):
+        sqlite = Sqlite()
+        self.__sqlite_engine__ = sqlite.engine()
