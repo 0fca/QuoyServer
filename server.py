@@ -97,12 +97,12 @@ class Server():
         self.logger.debug("BufferHandler exiting, because server has been stopped!")
 
     def __create_marker_file__(self) -> None:
-        marker_file_name = 'exit.lock'
-        with open(marker_file_name, "+a") as f:
+        marker_file_name = runtime_conf['LOCK_FILE']
+        with open(marker_file_name, "+w") as f:
             f.write(str(datetime.datetime.now()))
     
     def __cleanup_marker_file(self) -> None:
-        marker_file_name = 'exit.lock'
+        marker_file_name = runtime_conf['LOCK_FILE']
         os.remove(marker_file_name) 
 
     '''
@@ -126,7 +126,8 @@ class Server():
                                          args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", 
                                             logger, 
                                             self.__session_manager, 
-                                            self.keep_running), 
+                                            self.keep_running,
+                                            {'modules': MODULE_REFS}),
                                          name="ConsoleSocketThread", 
                                          daemon=True
                                          )
