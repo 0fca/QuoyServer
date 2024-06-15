@@ -132,7 +132,6 @@ class Server():
                                          args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", 
                                             logger, 
                                             self.__session_manager, 
-                                            self.keep_running), 
                                             self.keep_running,
                                             {'modules': MODULE_REFS}),
                                          name="ConsoleSocketThread", 
@@ -183,7 +182,10 @@ class Server():
 # Just an entrypoint
 if __name__ == '__main__':
     module_loader = ModuleLoader()
-    module_loader.load_all(MODULE_REFS)
+    logger = Logger()
+    loaded_modules = module_loader.load_all(MODULE_REFS)
+    logger.info(f'Loaded Modules: {loaded_modules}')
+    del logger
     for vhost in net_conf["VHOSTS"]:
         logger = Logger()
         server = Server(vhost, logger)

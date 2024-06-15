@@ -43,10 +43,11 @@ class FunctionSet():
 
     @staticmethod
     def on_unreg(args : list, session_manager : SessionManager, opt_args = []):
+        print(sid)
         sid = args[0]
         session : Session = session_manager.existing_session_by_sid(sid)
         session_manager.halt_session(session.ip())
-        return None
+        return Response("UNREG-OK")
     
     @staticmethod
     def on_systems_status(args : list, session_manager : SessionManager, opt_args = []):
@@ -79,11 +80,15 @@ class FunctionSet():
             
     @staticmethod
     def on_user_info(args: list, session_manager: SessionManager, opt_args = []):
-        m = opt_args[len(opt_args) - 1]['mod_users']
-        sid = args[0]
-        users = getattr(m, "__mod_init__")()
-        session = session_manager.existing_session_by_sid(sid)
-        user = users.find_by_name(session[0].username())
-        information = user.read_from_data("about_user")
+        module_refs = opt_args[len(opt_args) - 1]
+        if module_refs:
+            m = module_refs['mod_users']
+            sid = args[0]
+            users = getattr(m, "__mod_init__")()
+            session = session_manager.existing_session_by_sid(sid)
+            user = users.find_by_name(session[0].username())
+            information = user.read_from_data("about_user")
+        else:
+            information = {}
         return Response(f".USRNFO={json.dumps(information)}")
 

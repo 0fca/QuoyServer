@@ -96,30 +96,23 @@ def server_sessions(sock_conn: socket, session_manager: SessionManager, keep_run
         sock_conn.sendall(as_bytes(f"{__console_prompt__()}"))
 
 def server_stat(sock_conn: socket, session_manager: SessionManager, keep_running: Event, logger: Logger):
-    sock_conn.sendall(as_bytes(__format_str__(f"Current QUOY Server Status")))
-    sessions = session_manager.existing_sessions()
-    if not sessions:
-        sock_conn.sendall(as_bytes(__format_str__(f"No active sessions")))
-        sock_conn.sendall(as_bytes(__console_prompt__()))
-        return
-    for s in sessions:
-        tmp = f"{s.ip()} as {s.username() if s.username() else '?'} using {__adress_family__(s)}"
-        sock_conn.sendall(as_bytes(__format_str__(tmp)))
-    sock_conn.sendall(as_bytes(f"{__console_prompt__()}"))
     if not keep_running.is_set():
         sock_conn.sendall(as_bytes(__format_str__(f"Current QUOY Server Status")))
         sock_conn.sendall(as_bytes(__format_str__(f"Status is being loaded, please wait...")))
-        status_message = 'None information could be gathered'
-        is_ssl_enabled = check_if_ssl_enabled()
-        status_message = f'{__console_prompt__()}{__format_str__("**SSL Mod status**:")} {is_ssl_enabled}'
-        http_raw_check = check_raw_hc()
-        status_message += f'{__console_prompt__()}{__format_str__("**Raw Health Check Mod**:")} {http_raw_check}'
-        persistent_sessions_enabled = check_persistent_session_support()
-        status_message += f'{__console_prompt__()}{__format_str__("**Persistent Sessions Mod**:")} {persistent_sessions_enabled}'
-
-        mRef = loaded_modules['mod_discord_messenger']
-        messenger = getattr(mRef, "__mod_init__")({'logger': logger})
-        messenger.send_to_webhook(status_message)
+        status_message = 'QUOY Server is running, but no information could be gathered.\nReason: {0}'
+        try: 
+            is_ssl_enabled = check_if_ssl_enabled()
+            status_message = f'{__console_prompt__()}{__format_str__("**SSL Mod status**:")} {is_ssl_enabled}'
+            http_raw_check = check_raw_hc()
+            status_message += f'{__console_prompt__()}{__format_str__("**Raw Health Check Mod**:")} {http_raw_check}'
+            persistent_sessions_enabled = check_persistent_session_support()
+            status_message += f'{__console_prompt__()}{__format_str__("**Persistent Sessions Mod**:")} {persistent_sessions_enabled}'
+        except Exception as e:
+            status_message = status_message.format(e.args[0])
+        if 'mod_discord_messenger' in loaded_modules.keys():
+            mRef = loaded_modules['mod_discord_messenger']
+            messenger = getattr(mRef, "__mod_init__")({'logger': logger})
+            messenger.send_to_webhook(status_message)
         sock_conn.sendall(as_bytes(status_message))
         logger.debug("Sending message completed")
         sock_conn.sendall(as_bytes(f"{__console_prompt__()}"))
