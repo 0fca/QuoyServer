@@ -6,14 +6,13 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import Session
 
-
 from modules.mod_users import User
 
 MODULE_NAME = "persistent_sessions"
-    
 
 class Base(DeclarativeBase):
     pass
+
 
 class PersistentSession(Base):
     __tablename__ = "session"
