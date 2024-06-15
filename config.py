@@ -7,12 +7,24 @@ NET_CONF = {
         "KEY_FILE": "cert.key"
     }]
 }
+USER_CONF = {
+
+}
+DB_CONF = {
+    "db_name": "user.db"
+}
 MODULES = {
     "MODULE_DIR": "./modules",
     "ENABLED": [
-        "ssl"
+        "ssl",
+        "persistent_sessions",
+        "discord_messenger"
     ]
 }
 LOG_CONF = {
     "LOG_LEVEL": "Debug"
+}
+RUNTIME = {
+    "CRASH_RECOVERY": True,
+    "BUFFER_LEN": 8192
 }
