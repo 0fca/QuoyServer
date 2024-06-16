@@ -12,7 +12,8 @@ class ModuleLoader:
             relative_mod_path = f"{module_dir}{os.sep}{mod}"
             if os.path.isfile(os.path.abspath(relative_mod_path)) and mod.startswith("mod"):
                 mod_name = mod.split(".")[0]
-                if mod_name in MODULES['ENABLED']:
+                
+                if mod_name.replace("mod_", "") in MODULES['ENABLED']:
                     output.append(mod_name)
                     m = importlib.import_module(f"modules.{mod_name}")
                     module_refs[mod_name] = m
