@@ -132,6 +132,7 @@ class Server():
                                          args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", 
                                             logger, 
                                             self.__session_manager, 
+                                            self.keep_running), 
                                             self.keep_running,
                                             {'modules': MODULE_REFS}),
                                          name="ConsoleSocketThread", 

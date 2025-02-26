@@ -96,6 +96,16 @@ def server_sessions(sock_conn: socket, session_manager: SessionManager, keep_run
         sock_conn.sendall(as_bytes(f"{__console_prompt__()}"))
 
 def server_stat(sock_conn: socket, session_manager: SessionManager, keep_running: Event, logger: Logger):
+    sock_conn.sendall(as_bytes(__format_str__(f"Current QUOY Server Status")))
+    sessions = session_manager.existing_sessions()
+    if not sessions:
+        sock_conn.sendall(as_bytes(__format_str__(f"No active sessions")))
+        sock_conn.sendall(as_bytes(__console_prompt__()))
+        return
+    for s in sessions:
+        tmp = f"{s.ip()} as {s.username() if s.username() else '?'} using {__adress_family__(s)}"
+        sock_conn.sendall(as_bytes(__format_str__(tmp)))
+    sock_conn.sendall(as_bytes(f"{__console_prompt__()}"))
     if not keep_running.is_set():
         sock_conn.sendall(as_bytes(__format_str__(f"Current QUOY Server Status")))
         sock_conn.sendall(as_bytes(__format_str__(f"Status is being loaded, please wait...")))
