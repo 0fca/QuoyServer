@@ -41,7 +41,10 @@ class Server():
             "SEND" : Command(FunctionSet.on_send_ok, 2),
             "UNREG" : Command(FunctionSet.on_unreg, 1),
             ".SYSSTA": Command(FunctionSet.on_systems_status, 2),
-            ".USRNFO": Command(FunctionSet.on_user_info, 2)
+            ".USRNFO": Command(FunctionSet.on_user_info),
+            ".DIR": Command(FunctionSet.on_dir),
+            ".S.CRT": Command(FunctionSet.on_scrt),
+            ".S.DKR": Command(FunctionSet.on_sdkr, 1)
         }
         self.__server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -58,6 +61,7 @@ class Server():
     def __handle_client(self, client_socket : socket.socket, event : Event, session_manager : SessionManager):
         client_socket.setblocking(False)
         sip = client_socket.getpeername()[0]
+        client_socket.sendall(bytes(self.__motd__(sip), 'UTF-8'))
         while not event.is_set():
             try:
                 request = client_socket.recv(runtime_conf['BUFFER_LEN'])
@@ -111,6 +115,15 @@ class Server():
         marker_file_name = runtime_conf['LOCK_FILE']
         os.remove(marker_file_name) 
 
+    def __motd__(self, ip: str) -> str:
+        return f'''
+                Welcome to the QuoyServer\n
+                \rCurrent Server Time: {datetime.datetime.now()}\n
+                \rYour IP: {ip}\n
+                \r~> 
+               '''.strip()
+        
+
     '''
     This method allows to launch the Server class instance, it can be called only once per Server instance.
     It allows to launch server using vhost configs including TLS support.
@@ -132,7 +145,6 @@ class Server():
                                          args=(f"/tmp/{vhost['HOST']}_{vhost['PORT']}.sock", 
                                             logger, 
                                             self.__session_manager, 
-                                            self.keep_running), 
                                             self.keep_running,
                                             {'modules': MODULE_REFS}),
                                          name="ConsoleSocketThread", 
@@ -180,6 +192,7 @@ class Server():
         self.logger.debug(f"{socket_thread.name} - Is Alive: {socket_thread.is_alive()} - Is Daemon: {socket_thread.daemon}")
         self.logger.info(f"It seems that server exits gracefully, removing exit.lock file.")
         self.__cleanup_marker_file()
+
 # Just an entrypoint
 if __name__ == '__main__':
     module_loader = ModuleLoader()

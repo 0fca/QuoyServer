@@ -5,6 +5,9 @@ from multiprocessing import Event
 from session_manager import SessionManager, Session
 from config import MODULES, RUNTIME
 
+from typing import List
+from zcached import ZCached, Result
+
 socket_path = None
 encoding = "ASCII"
 modules = None
@@ -131,12 +134,25 @@ def exit_server(sock_conn: socket, session_manager: SessionManager, keep_running
     sock_conn.sendall(as_bytes(__format_str__('To exit press Ctrl-C')))
     sock_conn.sendall(as_bytes(f"{__console_prompt__()}"))
 
+def rsrc(sock_conn: socket, session_manager: SessionManager, keep_running: Event, logger: Logger):
+    with ZCached(host="127.0.0.1", port=7556) as client:
+        client.run()
 
+        if client.is_alive() is False:
+            sock_conn.sendall(as_bytes(__format_str__('Command unavailable due to zcached server inaccessibility')))
+        # TODO: Save some markers to make global server command cron worker
+        client.set(key="rsrc", value="run")
+        client.save()
+        client.flush()
+        sock_conn.sendall(as_bytes(__format_str__('rsrc worker will run asap')))
+    
+    
 console_commands = {
     "halt": halt_server,
     "sessions": server_sessions,
     "stat": server_stat,
-    "exit": exit_server
+    "exit": exit_server,
+    "rsrc": rsrc
 }
 # TODO: Rewrite this using classes?
 

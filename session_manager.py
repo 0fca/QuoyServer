@@ -11,7 +11,7 @@ class Response():
         self.__payload = payload
 
     def to_str(self, enc : str = "ASCII") -> bytes:
-        return bytes(self.__payload + "\r\n", enc)
+        return bytes(self.__payload + "\n\r", enc)
 
 class Session():
     def __init__(self, ip : str, event : Event):

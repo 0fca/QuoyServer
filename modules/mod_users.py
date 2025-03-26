@@ -1,9 +1,8 @@
 from config import USER_CONF
 from persistence.sqlite import Sqlite
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy import Integer, String, JSON
 from sqlalchemy.orm import DeclarativeBase, Session, mapped_column
-from sqlalchemy import bindparam
 
 import json
 
