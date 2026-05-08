@@ -42,6 +42,7 @@ class Server():
             "UNREG" : Command(FunctionSet.on_unreg, 1),
             ".SYSSTA": Command(FunctionSet.on_systems_status, 2),
             ".USRNFO": Command(FunctionSet.on_user_info),
+            ".USRPRF": Command(FunctionSet.on_user_profile_flag),
             ".DIR": Command(FunctionSet.on_dir),
             ".S.CRT": Command(FunctionSet.on_scrt),
             ".S.DKR": Command(FunctionSet.on_sdkr, 1)

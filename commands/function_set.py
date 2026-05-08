@@ -11,6 +11,38 @@ This class represents a set of functions which is to be used by a server as a va
 Methods of this class are mapped to proper command names using Command class objects
 '''
 class FunctionSet():
+    OTP_PROFILE_PATH = "profile:security:otp"
+
+    @staticmethod
+    def __parse_bool__(value: str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "on", "enabled"):
+            return True
+        if normalized in ("false", "0", "no", "off", "disabled"):
+            return False
+        return None
+
+    @staticmethod
+    def __read_path__(data: dict, path: str):
+        current = data
+        for segment in path.split(":"):
+            if not isinstance(current, dict) or segment not in current:
+                return False, False
+            current = current[segment]
+        return True, current
+
+    @staticmethod
+    def __write_path__(data: dict, path: str, value):
+        current = data
+        segments = path.split(":")
+        for segment in segments[:-1]:
+            next_segment = current.get(segment)
+            if not isinstance(next_segment, dict):
+                next_segment = {}
+                current[segment] = next_segment
+            current = next_segment
+        current[segments[-1]] = value
+        return data
 
     @staticmethod
     def __get_module_ref__(module_refs: dict, module_name: str):
@@ -103,6 +135,53 @@ class FunctionSet():
         else:
             information = {}
         return Response(f".USRNFO={json.dumps(information)}")
+
+    @staticmethod
+    def on_user_profile_flag(args: list, session_manager: SessionManager, opt_args = []):
+        if len(args) < 2 or not args[0] or not args[1]:
+            return Response("BAD-RQST-HDR sid and profile path are required")
+
+        module_refs = opt_args[len(opt_args) - 1]
+        users = FunctionSet.__get_module_ref__(module_refs, "mod_users")
+        sid = args[0]
+        session = session_manager.existing_session_by_sid(sid)
+        if not session:
+            return Response("BAD-RQST-HDR invalid sid")
+
+        username = session[0].username()
+        expression = args[1].strip()
+        chunks = expression.split(" ", 1)
+        path = chunks[0].strip()
+        if not path:
+            return Response("BAD-RQST-HDR profile path is required")
+        if path != FunctionSet.OTP_PROFILE_PATH:
+            return Response("BAD-RQST-HDR unsupported profile path")
+
+        user = users.find_by_name(username)
+        user_data = users.normalize_user_data(user)
+
+        if len(chunks) == 1:
+            exists, value = FunctionSet.__read_path__(user_data, path)
+            payload = {
+                "path": path,
+                "exists": exists,
+                "value": value if exists else False
+            }
+            return Response(f".USRPRF={json.dumps(payload)}")
+
+        parsed_value = FunctionSet.__parse_bool__(chunks[1])
+        if parsed_value is None:
+            return Response("BAD-RQST-HDR value must be true or false")
+
+        updated_data = FunctionSet.__write_path__(user_data, path, parsed_value)
+        users.upsert_user_data(username, updated_data)
+        payload = {
+            "path": path,
+            "exists": True,
+            "updated": True,
+            "value": parsed_value
+        }
+        return Response(f".USRPRF={json.dumps(payload)}")
 
     @staticmethod
     def on_dir(args: list, session_manager: SessionManager, opt_args = []):

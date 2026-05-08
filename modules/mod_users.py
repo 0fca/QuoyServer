@@ -43,6 +43,30 @@ class Users:
         self.__sqlite_engine__.dispose()
         return u
 
+    def upsert_user_data(self, username: str, user_data: dict) -> User:
+        self.__init_session__()
+        with Session(self.__sqlite_engine__) as s:
+            user = s.scalar(select(User).where(User.name == username))
+            if user is None:
+                user = User(name=username, user_data=user_data)
+                s.add(user)
+            else:
+                user.user_data = user_data
+            s.commit()
+            s.refresh(user)
+            self.__sqlite_engine__.dispose()
+            return user
+
+    @staticmethod
+    def normalize_user_data(user: User | None) -> dict:
+        if user is None or user.user_data is None:
+            return {}
+        if isinstance(user.user_data, dict):
+            return dict(user.user_data)
+        if isinstance(user.user_data, str):
+            return json.loads(user.user_data)
+        return {}
+
 
     def __execute__stmt__(self, stmt) -> User:
         with Session(self.__sqlite_engine__) as s:

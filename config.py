@@ -17,7 +17,7 @@ MODULES = {
     "MODULE_DIR": "./modules",
     "ENABLED": [
         "ssl",
-        "persistent_sessions",
+#        "persistent_sessions",
         "discord_messenger",
         "raw_health_check",
         "users",
