@@ -142,7 +142,6 @@ console_commands = {
     "sessions": server_sessions,
     "stat": server_stat,
     "exit": exit_server,
-    "rsrc": rsrc
 }
 # TODO: Rewrite this using classes?
 
