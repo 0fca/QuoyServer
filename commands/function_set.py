@@ -92,15 +92,19 @@ class FunctionSet():
     def on_systems_status(args : list, session_manager : SessionManager, opt_args = []):
         # FIXME: This is hardcoded for now, but it should be read from DS - Pika Core API
         systems = {
-            'PikaCore': ['core.lukas-bownik.net', 443], 
-            'PikaNoteAPI': ['note.lukas-bownik.net', 443], 
-            'PikaML': ['ml.lukas-bownik.net', 443]
-        }
-        system_protocols = {
-            'PikaCore': ['TCP', 'HTTP'],
-            'PikaNoteAPI': ['TCP'],
-            'PikaML': ['TCP']
-        }
+    'PikaCore': ['core.lukas-bownik.net', 443], 
+    'PikaNoteAPI': ['noteapi.lukas-bownik.net', 443], 
+    'PikaML': ['ml.lukas-bownik.net', 443],
+    'PikaAI': ['ai.lukas-bownik.net', 443],
+    'PikaPMR': ['192.168.1.252', 3200]
+}
+system_protocols = {
+    'PikaCore': ['TCP', 'HTTP'],
+    'PikaNoteAPI': ['TCP'],
+    'PikaML': ['TCP'],
+    'PikaAI': ['TCP', 'HTTP'],
+    'PikaPMR': ['TCP']
+}
         systems_in = args[1].split(",")
         for system_in in systems_in:
             if system_in in system_protocols and system_protocols[system_in]:
