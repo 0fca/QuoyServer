@@ -87,17 +87,9 @@ class SessionManager():
         event = Event()
         s = Session(ip, event)
         s.assing_socket(socket)
-        if runtime_conf['CRASH_RECOVERY'] and self.sessions:
-            rs = self.sessions.find_by_ip(ip)
-            if rs is not None:
-                s = self.__map_recovered_session(rs, s, ip)
-        filtered_sessions = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
-        # FIXME: This piece of code works, however it should handle this situation in some other way: 
-        # returning some meaningful value determining an error or throwing an except
-        if not filtered_sessions:
-            self.__session_queue.append(s)
-            if self.sessions:
-                self.__update_session_store__()
+        self.__session_queue.append(s)
+        if self.sessions:
+            self.__single_session_update(s)
 
         return s
 
@@ -108,17 +100,17 @@ class SessionManager():
     
     def existing_session_by_ip(self, ip : str) -> Session:
         sessions: list[Session] = list(filter(lambda s : (s.ip() == ip), self.__session_queue))
-        return sessions[0] if len(sessions) == 1 else None
+        return sessions[0] if len(sessions) > 0 else None
 
     def existing_session_by_sid(self, sid : str) -> Session:
-        session : Session = list(filter(lambda s : (s.sid() == sid), self.__session_queue))
-        return session
+        sessions : list[Session] = list(filter(lambda s : (s.sid() == sid), self.__session_queue))
+        return sessions[0] if len(sessions) > 0 else None
     
     def existing_sessions(self) -> list[Session]:
         return self.__session_queue
     
     def remove_session(self, session : Session):
-        self.logger.debug("Removing session %s" % (session.ip()))
+        self.logger.debug("Removing session %s (%s)" % (session.sid(), session.ip()))
         if self.sessions:
             self.sessions.forget_session(session.sid())
         self.__session_queue.remove(session)
@@ -134,7 +126,7 @@ class SessionManager():
     def __update_session_store__(self) -> None:
         if self.__session_queue:
             for queued_session in self.__session_queue:
-                session = self.sessions.find_by_id(queued_session.username())
+                session = self.sessions.find_by_id(queued_session.sid())
                 if session is None:
                     self.sessions.append_session(queued_session)
 
@@ -175,10 +167,10 @@ class SessionManager():
                         # so the commands wont get stacked there and wont get sent twice or more times
                         session.wipe_buffer()
     
-    def halt_session(self, sip : str):
-        sessions : list[Session] = list(filter(lambda s : (s.ip() == sip), self.__session_queue))
-        if sessions and sessions[0] in self.__session_queue:
-            self.remove_session(sessions[0])
+    def halt_session(self, sid : str):
+        session = self.existing_session_by_sid(sid)
+        if session and session in self.__session_queue:
+            self.remove_session(session)
 
     def update_session(self, sid: str):
         sessions : list[Session] = list(filter(lambda s : (s.sid() == sid), self.__session_queue))

@@ -59,7 +59,7 @@ class Server():
     This handler is compatible with either Linux and Windows networking abstraction layer.
     Default length of packets is 8192 bytes.
     '''
-    def __handle_client(self, client_socket : socket.socket, event : Event, session_manager : SessionManager):
+    def __handle_client(self, client_socket : socket.socket, event : Event, session_manager : SessionManager, session_sid : str):
         client_socket.setblocking(False)
         sip = client_socket.getpeername()[0]
         client_socket.sendall(bytes(self.__motd__(sip), 'UTF-8'))
@@ -67,8 +67,8 @@ class Server():
             try:
                 request = client_socket.recv(runtime_conf['BUFFER_LEN'])
                 if not request:
-                    time.sleep(0.01)
-                    continue
+                    self.logger.debug("Client %s closed the connection" % sip)
+                    break
                 self.logger.debug("Received: %s on %s" % (request, threading.current_thread().name))
                 if type(client_socket) is not ssl.SSLSocket and request[0] == 255:
                     self.logger.debug("Received ff byte from %s, skipping over..." % sip)
@@ -82,15 +82,15 @@ class Server():
                 args = []
                 for arg_index in range(1, len(parsed_command)):
                     args.append(parsed_command[arg_index])
-                response = command.exec(args, session_manager, [client_socket.getpeername()[0], MODULE_REFS])
+                response = command.exec(args, session_manager, [client_socket.getpeername()[0], session_sid, MODULE_REFS])
                 if response:
                     self.logger.debug("Sending back %s on %s" % (response.to_str(), threading.current_thread().name))
                     client_socket.sendall(bytes(response.to_str()))
             except Exception as e:
                 time.sleep(0.05)
                 continue
-        self.logger.debug("Halting session %s ..." % sip)
-        session_manager.halt_session(sip)
+        self.logger.debug("Halting session %s (%s) ..." % (session_sid, sip))
+        session_manager.halt_session(session_sid)
 
     '''
     This method is passed as a invokeable to isolated thread scope so writing and reading of TCP packets is isolated one from each other.
@@ -185,7 +185,7 @@ class Server():
                 })
             s = self.__session_manager.create(client)
             self.logger.debug("Accepted connection from: %s:%d" % (addr[0], addr[1]))
-            client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager), name="SocketHandler%s" % (addr[0]), daemon=True)
+            client_handler = threading.Thread(target = self.__handle_client, args=(client, s.lock_event(), self.__session_manager, s.sid()), name="SocketHandler%s" % (addr[0]), daemon=True)
             client_handler.start()  
         self.logger.info("Server main loop stopped! Awaiting some time to check whether workers exited as well.")
         time.sleep(1)

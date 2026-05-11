@@ -65,7 +65,7 @@ class Sessions:
             r = func.json_each(PersistentSession.json, "$.ip").table_valued(
                 "value", joins_implicitly=True
             )
-            rs = s.query(PersistentSession).filter(r.c.value == ip).one_or_none()          
+            rs = s.query(PersistentSession).filter(r.c.value == ip).all()
         self.__sqlite_engine__.dispose()
         
         return rs

@@ -52,19 +52,20 @@ class FunctionSet():
 
     @staticmethod
     def on_hello(args : list, session_manager : SessionManager, opt_args = []) -> Response:
+        current_sid = opt_args[1] if len(opt_args) > 1 else None
+        current_session = session_manager.existing_session_by_sid(current_sid) if current_sid else None
+        if not current_session:
+            return Response("BAD-RQST-HDR No active session found")
+
         session = session_manager.existing_session_by_username(args[0])
-        if session:
+        if session and session.sid() != current_session.sid():
             r = Response("IN-USE")
             return r
-        session : Session = session_manager.existing_session_by_ip(opt_args[0])
-        if session:
-            r = Response("REG-ACK " + args[0] + " " + str(session.sid()))
-            session.assign_user(args[0])
-            if 'persistent_sessions' in mod_conf['ENABLED']:
-                session_manager.update_session(session.sid())
-            return r
-        else:
-            return None
+
+        current_session.assign_user(args[0])
+        if 'persistent_sessions' in mod_conf['ENABLED']:
+            session_manager.update_session(current_session.sid())
+        return Response("REG-ACK " + args[0] + " " + str(current_session.sid()))
 
     @staticmethod
     def on_send_ok(args : list,  session_manager : SessionManager, opt_args = []) -> Response:
@@ -85,7 +86,9 @@ class FunctionSet():
     def on_unreg(args : list, session_manager : SessionManager, opt_args = []):
         sid = args[0]
         session : Session = session_manager.existing_session_by_sid(sid)
-        session_manager.halt_session(session.ip())
+        if not session:
+            return Response("BAD-RQST-HDR invalid sid")
+        session_manager.halt_session(session.sid())
         return Response("UNREG-OK")
     
     @staticmethod
@@ -131,7 +134,9 @@ class FunctionSet():
             users = FunctionSet.__get_module_ref__(module_refs, "mod_users")
             sid = args[0]
             session = session_manager.existing_session_by_sid(sid)
-            user = users.find_by_name(session[0].username())
+            if not session:
+                return Response("BAD-RQST-HDR invalid sid")
+            user = users.find_by_name(session.username())
             print(user)
             information = user.read_from_data("about_user")
             if filter_params:
@@ -152,7 +157,7 @@ class FunctionSet():
         if not session:
             return Response("BAD-RQST-HDR invalid sid")
 
-        username = session[0].username()
+        username = session.username()
         expression = args[1].strip()
         chunks = expression.split(" ", 1)
         path = chunks[0].strip()
@@ -196,7 +201,9 @@ class FunctionSet():
         if not sid:
             return Response("BAD-RQST-HDR sid is required")
         session = session_manager.existing_session_by_sid(sid)
-        user_data_dir = users.find_by_name(session[0].username()).read_from_data("about_user")["data_dir"]
+        if not session:
+            return Response("BAD-RQST-HDR invalid sid")
+        user_data_dir = users.find_by_name(session.username()).read_from_data("about_user")["data_dir"]
         abs_path = f"{user_data_dir}/{subpath}"
         listing = os.listdir(path=abs_path)
         return Response(f".DIR={json.dumps(listing)}")
@@ -212,7 +219,9 @@ class FunctionSet():
         if not path:
             return Response("BAD-RQST-HDR path is required")
         session = session_manager.existing_session_by_sid(sid)
-        user_data_dir = users.find_by_name(session[0].username()).read_from_data("about_user")["data_dir"]
+        if not session:
+            return Response("BAD-RQST-HDR invalid sid")
+        user_data_dir = users.find_by_name(session.username()).read_from_data("about_user")["data_dir"]
         abs_path = f"{user_data_dir}/{path}"
         if os.path.isfile(abs_path):
             with open(abs_path, mode="r+") as fh:
