@@ -103,8 +103,8 @@ class FunctionSet():
         }
         system_protocols = {
             'PikaCore': ['TCP', 'HTTP'],
-            'PikaNoteAPI': ['TCP'],
-            'PikaML': ['TCP'],
+            'PikaNoteAPI': ['TCP', 'HTTP'],
+            'PikaML': ['TCP','HTTP'],
             'PikaAI': ['TCP', 'HTTP'],
             'PikaPMR': ['TCP']
         }
